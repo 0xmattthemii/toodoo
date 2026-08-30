@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { createTask, deleteTask, updateTask } from "@/actions/tasks";
 import { UserAvatar } from "@/components/user-avatar";
+import { LoadingButton } from "@/components/loading-button";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -70,6 +71,7 @@ export function TaskDialog({
   const [deadline, setDeadline] = useState<Date | undefined>(undefined);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
+  const [deleting, startDeleteTransition] = useTransition();
 
   // Re-seed the form from props each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(false);
@@ -128,7 +130,7 @@ export function TaskDialog({
 
   function onDelete() {
     if (!task) return;
-    startTransition(async () => {
+    startDeleteTransition(async () => {
       const result = await deleteTask(task.id);
       if (result.error) {
         toast.error(result.error);
@@ -237,20 +239,21 @@ export function TaskDialog({
                       mode="single"
                       selected={deadline}
                       onSelect={setDeadline}
+                      fixedWeeks
                     />
                   </PopoverContent>
                 </Popover>
-                {deadline ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Clear deadline"
-                    onClick={() => setDeadline(undefined)}
-                  >
-                    <X />
-                  </Button>
-                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Clear deadline"
+                  onClick={() => setDeadline(undefined)}
+                  className={deadline ? undefined : "invisible"}
+                  tabIndex={deadline ? undefined : -1}
+                >
+                  <X />
+                </Button>
               </div>
             </div>
             <div className="grid gap-2">
@@ -306,15 +309,16 @@ export function TaskDialog({
           </div>
           <DialogFooter className={task ? "sm:justify-between" : undefined}>
             {task ? (
-              <Button
+              <LoadingButton
                 type="button"
                 variant="destructive"
                 onClick={onDelete}
+                loading={deleting}
                 disabled={pending}
               >
                 <Trash2 />
                 Delete
-              </Button>
+              </LoadingButton>
             ) : null}
             <div className="flex gap-2">
               <Button
@@ -324,9 +328,9 @@ export function TaskDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? "Saving…" : task ? "Save changes" : "Create task"}
-              </Button>
+              <LoadingButton type="submit" loading={pending} disabled={deleting}>
+                {task ? "Save changes" : "Create task"}
+              </LoadingButton>
             </div>
           </DialogFooter>
         </form>

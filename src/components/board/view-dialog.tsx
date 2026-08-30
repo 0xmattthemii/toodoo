@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { createView, updateView } from "@/actions/views";
 import { useBoardOptional } from "@/components/board/board-context";
 import { IconColorPicker } from "@/components/icon-color-picker";
+import { LoadingButton } from "@/components/loading-button";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -135,9 +136,9 @@ export function ViewDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : view ? "Save" : "Save view"}
-            </Button>
+            <LoadingButton type="submit" loading={pending}>
+              {view ? "Save" : "Save view"}
+            </LoadingButton>
           </DialogFooter>
         </form>
       </DialogContent>

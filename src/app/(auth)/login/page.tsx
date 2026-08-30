@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/loading-button";
 import {
   Card,
   CardContent,
@@ -70,9 +70,9 @@ export default function LoginPage() {
           </div>
         </CardContent>
         <CardFooter className="mt-6 flex-col gap-3">
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
-          </Button>
+          <LoadingButton type="submit" className="w-full" loading={loading}>
+            Sign in
+          </LoadingButton>
           <p className="text-sm text-muted-foreground">
             No account?{" "}
             <Link href="/signup" className="text-foreground underline">

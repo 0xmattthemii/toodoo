@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { createProject } from "@/actions/projects";
 import { IconColorPicker } from "@/components/icon-color-picker";
+import { LoadingButton } from "@/components/loading-button";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -107,9 +108,9 @@ export function ProjectDialog() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? "Creating…" : "Create project"}
-            </Button>
+            <LoadingButton type="submit" loading={pending}>
+              Create project
+            </LoadingButton>
           </DialogFooter>
         </form>
       </DialogContent>
