@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { updateView } from "@/actions/views";
 import { useBoard } from "@/components/board/board-context";
 import { ViewDialog } from "@/components/board/view-dialog";
+import { LoadingButton } from "@/components/loading-button";
 import { TaskDialog } from "@/components/task-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -134,6 +135,28 @@ export function BoardToolbar() {
           </TabsList>
         </Tabs>
 
+        <div className="ml-auto flex items-center gap-2">
+          {viewId && dirty ? (
+            <LoadingButton
+              variant="outline"
+              size="sm"
+              onClick={saveViewChanges}
+              loading={pending}
+            >
+              <Bookmark />
+              Save changes
+            </LoadingButton>
+          ) : null}
+          {!viewId && !scopedProjectId ? <ViewDialog /> : null}
+          <Button size="sm" onClick={board.openCreate}>
+            <Plus />
+            New task
+          </Button>
+        </div>
+      </div>
+
+      {/* Grouping + filter row — always rendered so the layout doesn't shift. */}
+      <div className="flex min-h-7 flex-wrap items-center gap-2">
         <Select
           value={config.groupBy}
           onValueChange={(value) => board.setGroupBy(value as GroupBy)}
@@ -153,29 +176,6 @@ export function BoardToolbar() {
             ))}
           </SelectContent>
         </Select>
-
-        <div className="ml-auto flex items-center gap-2">
-          {viewId && dirty ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={saveViewChanges}
-              disabled={pending}
-            >
-              <Bookmark />
-              {pending ? "Saving…" : "Save changes"}
-            </Button>
-          ) : null}
-          {!viewId && !scopedProjectId ? <ViewDialog /> : null}
-          <Button size="sm" onClick={board.openCreate}>
-            <Plus />
-            New task
-          </Button>
-        </div>
-      </div>
-
-      {/* Filter row — always rendered so the layout doesn't shift. */}
-      <div className="flex min-h-7 flex-wrap items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
             <ListFilter />

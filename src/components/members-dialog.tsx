@@ -11,6 +11,7 @@ import {
   revokeInvitation,
   updateMemberRole,
 } from "@/actions/members";
+import { LoadingButton } from "@/components/loading-button";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,9 +142,9 @@ export function MembersDialog({
                 ))}
               </SelectContent>
             </Select>
-            <Button type="submit" disabled={pending}>
+            <LoadingButton type="submit" loading={pending}>
               Invite
-            </Button>
+            </LoadingButton>
           </form>
         ) : null}
 
