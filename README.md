@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# toodoo
 
-## Getting Started
+A simple, minimalist todo app for teams.
 
-First, run the development server:
+- **Tasks** with deadlines, status, and one or more assignees
+- **Projects** to group tasks, with member roles (admin / member)
+- **Invitations** by email — existing users are added instantly, new users join automatically when they sign up
+- **Flexible views** — list or kanban, group by status / project / assignee / deadline, filter by status, people, project, and due date; drag & drop across kanban status columns
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- [Next.js](https://nextjs.org) (App Router)
+- [Better Auth](https://better-auth.com) — email & password authentication
+- [Drizzle ORM](https://orm.drizzle.team) + plain Postgres — works with [Supabase](https://supabase.com) or any other Postgres, no vendor lock-in
+- [shadcn/ui](https://ui.shadcn.com) + Tailwind CSS
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Getting started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Install dependencies:
 
-## Learn More
+   ```bash
+   pnpm install
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. Copy the environment file and fill it in:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   cp .env.example .env.local
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   | Variable | Description |
+   | --- | --- |
+   | `DATABASE_URL` | Postgres connection string (Supabase pooled URL recommended in serverless) |
+   | `BETTER_AUTH_SECRET` | Session signing secret — `openssl rand -base64 32` |
+   | `BETTER_AUTH_URL` | Base URL of the app (optional on Vercel) |
 
-## Deploy on Vercel
+   For local development you can run a throwaway Postgres:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   ```bash
+   docker run -d --name toodoo-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=toodoo -p 54329:5432 postgres:17-alpine
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+3. Apply the database schema:
+
+   ```bash
+   pnpm drizzle-kit migrate
+   ```
+
+4. Run the dev server:
+
+   ```bash
+   pnpm dev
+   ```
+
+Open [http://localhost:3000](http://localhost:3000), create an account, and start organizing.
+
+## Database
+
+The schema lives in [`src/db/schema`](src/db/schema) and SQL migrations in [`drizzle/`](drizzle). Everything is plain Postgres — swap `DATABASE_URL` to move providers.
+
+## License
+
+[MIT](LICENSE)
