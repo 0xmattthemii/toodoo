@@ -39,13 +39,20 @@ export function ViewActions({
         >
           <MoreHorizontal />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setEditOpen(true)}>
+        <DropdownMenuContent align="end" className="min-w-44">
+          <DropdownMenuItem
+            className="whitespace-nowrap"
+            onClick={() => setEditOpen(true)}
+          >
             <Pencil />
             Edit view
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          <DropdownMenuItem
+            variant="destructive"
+            className="whitespace-nowrap"
+            onClick={onDelete}
+          >
             <Trash2 />
             Delete view
           </DropdownMenuItem>

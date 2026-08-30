@@ -297,13 +297,13 @@ export function BoardContent({
                 </span>
               </h3>
             ) : null}
-            <div className="overflow-hidden rounded-xl border">
-              {group.tasks.length === 0 ? (
-                <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                  No tasks
-                </p>
-              ) : (
-                group.tasks.map((task, index) => (
+            {group.tasks.length === 0 ? (
+              <p className="rounded-xl border border-dashed px-3 py-2.5 text-center text-sm text-muted-foreground/70">
+                No tasks
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-xl border">
+                {group.tasks.map((task, index) => (
                   <TaskRow
                     key={`${group.key}-${task.id}`}
                     task={task}
@@ -314,9 +314,9 @@ export function BoardContent({
                       changeStatus(task.id, done ? "done" : "todo")
                     }
                   />
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </section>
         ))}
       </div>
