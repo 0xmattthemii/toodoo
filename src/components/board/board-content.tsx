@@ -561,11 +561,6 @@ function TaskCard({
           {task.title}
         </span>
       </span>
-      {task.description ? (
-        <span className="line-clamp-2 text-xs text-muted-foreground">
-          {task.description}
-        </span>
-      ) : null}
       <span className="flex items-center gap-2">
         {showProject && task.projectName ? (
           <Badge variant="outline" className="max-w-28">
