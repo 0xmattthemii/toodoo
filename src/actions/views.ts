@@ -12,17 +12,16 @@ import type { BoardConfig } from "@/lib/types";
 function sanitizeConfig(config: BoardConfig): BoardConfig {
   return {
     mode: config.mode === "kanban" ? "kanban" : "list",
-    groupBy: ["status", "project", "assignee", "deadline", "none"].includes(
+    groupBy: ["project", "assignee", "deadline", "none"].includes(
       config.groupBy,
     )
       ? config.groupBy
-      : "status",
+      : "none",
     filters: (config.filters ?? [])
       .filter(
         (filter) =>
-          ["status", "assignee", "project", "deadline"].includes(
-            filter.field,
-          ) && typeof filter.value === "string",
+          ["assignee", "project", "deadline"].includes(filter.field) &&
+          typeof filter.value === "string",
       )
       .slice(0, 20),
   };

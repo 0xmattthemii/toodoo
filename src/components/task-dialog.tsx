@@ -39,12 +39,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  TASK_STATUSES,
-  type Person,
-  type ProjectSummary,
-  type TaskStatus,
-  type TaskWithMeta,
+import type {
+  Person,
+  ProjectSummary,
+  TaskWithMeta,
 } from "@/lib/types";
 
 const NO_PROJECT = "none";
@@ -66,7 +64,6 @@ export function TaskDialog({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<TaskStatus>("todo");
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
   const [deadline, setDeadline] = useState<Date | undefined>(undefined);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
@@ -80,7 +77,6 @@ export function TaskDialog({
     if (open) {
       setTitle(task?.title ?? "");
       setDescription(task?.description ?? "");
-      setStatus(task?.status ?? "todo");
       setProjectId(
         task ? (task.projectId ?? NO_PROJECT) : (defaultProjectId ?? NO_PROJECT),
       );
@@ -111,7 +107,6 @@ export function TaskDialog({
     const input = {
       title,
       description,
-      status,
       deadline: deadline ? deadline.toISOString() : null,
       projectId: projectId === NO_PROJECT ? null : projectId,
       assigneeIds,
@@ -193,27 +188,6 @@ export function TaskDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
-              <Label>Status</Label>
-              <Select
-                value={status}
-                onValueChange={(value) => setStatus(value as TaskStatus)}
-                items={TASK_STATUSES}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TASK_STATUSES.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label>Deadline</Label>
               <div className="flex items-center gap-1">

@@ -19,20 +19,18 @@ import { CalendarClock, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { moveTaskToProject, setTaskStatus } from "@/actions/tasks";
+import { moveTaskToProject, setTaskDone } from "@/actions/tasks";
 import { useBoard } from "@/components/board/board-context";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import {
-  TASK_STATUSES,
-  type BoardFilter,
-  type Person,
-  type ProjectSummary,
-  type TaskStatus,
-  type TaskWithMeta,
+import type {
+  BoardFilter,
+  Person,
+  ProjectSummary,
+  TaskWithMeta,
 } from "@/lib/types";
 
 type DueBucket = "overdue" | "today" | "week" | "later" | "none";
@@ -61,8 +59,6 @@ function matchesFilter(
   currentUserId: string,
 ) {
   switch (filter.field) {
-    case "status":
-      return task.status === filter.value;
     case "deadline":
       return dueBucket(task) === filter.value;
     case "assignee":
@@ -75,10 +71,6 @@ function matchesFilter(
       if (filter.value === "none") return !task.projectId;
       return task.projectId === filter.value;
   }
-}
-
-function statusLabel(status: TaskStatus) {
-  return TASK_STATUSES.find((item) => item.value === status)?.label ?? status;
 }
 
 // Prefer the column under the pointer; fall back to overlap for edge drops.
@@ -99,7 +91,8 @@ export function BoardContent({
   people: Person[];
 }) {
   const board = useBoard();
-  const { config, currentUserId, scopedProjectId, registerOptions } = board;
+  const { config, currentUserId, scopedProjectId, registerOptions, showDone } =
+    board;
 
   // Feed dropdown options (filter values, task dialog selects) to the toolbar.
   useEffect(() => {
@@ -129,22 +122,18 @@ export function BoardContent({
     const effective = tasks.map((task) =>
       taskOverrides[task.id] ? { ...task, ...taskOverrides[task.id] } : task,
     );
-    return effective.filter((task) =>
-      config.filters.every((filter) =>
-        matchesFilter(task, filter, currentUserId),
-      ),
+    return effective.filter(
+      (task) =>
+        (showDone || !task.done) &&
+        config.filters.every((filter) =>
+          matchesFilter(task, filter, currentUserId),
+        ),
     );
-  }, [tasks, taskOverrides, config.filters, currentUserId]);
+  }, [tasks, taskOverrides, config.filters, currentUserId, showDone]);
 
   const groups = useMemo<Group[]>(() => {
     const list = filteredTasks;
     switch (config.groupBy) {
-      case "status":
-        return TASK_STATUSES.map(({ value, label }) => ({
-          key: value,
-          label,
-          tasks: list.filter((task) => task.status === value),
-        }));
       case "project": {
         const result: Group[] = projects
           .filter(
@@ -199,13 +188,13 @@ export function BoardContent({
     });
   }
 
-  function changeStatus(taskId: string, status: TaskStatus) {
+  function changeDone(taskId: string, done: boolean) {
     setTaskOverrides((current) => ({
       ...current,
-      [taskId]: { ...current[taskId], status },
+      [taskId]: { ...current[taskId], done },
     }));
     startTransition(async () => {
-      const result = await setTaskStatus(taskId, status);
+      const result = await setTaskDone(taskId, done);
       if (result.error) {
         toast.error(result.error);
         revertOverride(taskId);
@@ -235,10 +224,8 @@ export function BoardContent({
     board.openEdit(task);
   }
 
-  // Drops persist a real move only for these groupings.
-  const canDrag =
-    config.mode === "kanban" &&
-    (config.groupBy === "status" || config.groupBy === "project");
+  // Drops persist a real move only when grouping by project.
+  const canDrag = config.mode === "kanban" && config.groupBy === "project";
 
   function onDragStart(event: DragStartEvent) {
     setActiveTask((event.active.data.current?.task as TaskWithMeta) ?? null);
@@ -255,10 +242,7 @@ export function BoardContent({
     const overKey = event.over?.id;
     if (!task || typeof overKey !== "string") return;
 
-    if (config.groupBy === "status") {
-      const status = overKey as TaskStatus;
-      if (status !== task.status) changeStatus(task.id, status);
-    } else if (config.groupBy === "project") {
+    if (config.groupBy === "project") {
       const projectId = overKey === "none" ? null : overKey;
       if (projectId !== task.projectId) moveProject(task.id, projectId);
     }
@@ -298,21 +282,18 @@ export function BoardContent({
               </h3>
             ) : null}
             {group.tasks.length === 0 ? (
-              <p className="rounded-xl border border-dashed px-3 py-2.5 text-center text-sm text-muted-foreground/70">
+              <p className="rounded-lg border border-dashed px-3 py-2.5 text-center text-sm text-muted-foreground/70">
                 No tasks
               </p>
             ) : (
-              <div className="overflow-hidden rounded-xl border">
-                {group.tasks.map((task, index) => (
+              <div className="flex flex-col gap-2">
+                {group.tasks.map((task) => (
                   <TaskRow
                     key={`${group.key}-${task.id}`}
                     task={task}
                     showProject={showProject}
-                    isFirst={index === 0}
                     onOpen={() => openEdit(task)}
-                    onToggleDone={(done) =>
-                      changeStatus(task.id, done ? "done" : "todo")
-                    }
+                    onToggleDone={(done) => changeDone(task.id, done)}
                   />
                 ))}
               </div>
@@ -347,6 +328,7 @@ export function BoardContent({
                 showProject={showProject}
                 draggable={canDrag}
                 onOpen={() => openEdit(task)}
+                onToggleDone={(done) => changeDone(task.id, done)}
               />
             ))}
           </KanbanColumn>
@@ -416,12 +398,14 @@ function DraggableTaskCard({
   showProject,
   draggable,
   onOpen,
+  onToggleDone,
 }: {
   dragId: string;
   task: TaskWithMeta;
   showProject: boolean;
   draggable: boolean;
   onOpen: () => void;
+  onToggleDone: (done: boolean) => void;
 }) {
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: dragId,
@@ -441,18 +425,43 @@ function DraggableTaskCard({
       )}
       onClick={onOpen}
     >
-      <TaskCard task={task} showProject={showProject} />
+      <TaskCard
+        task={task}
+        showProject={showProject}
+        onToggleDone={onToggleDone}
+      />
     </div>
   );
 }
 
+function DoneCheckbox({
+  task,
+  onToggleDone,
+}: {
+  task: TaskWithMeta;
+  onToggleDone: (done: boolean) => void;
+}) {
+  return (
+    <span onClick={(event) => event.stopPropagation()} className="flex">
+      <Checkbox
+        checked={task.done}
+        onCheckedChange={(checked) => onToggleDone(checked === true)}
+        className="rounded-full"
+        aria-label={`Mark "${task.title}" as ${task.done ? "not done" : "done"}`}
+      />
+    </span>
+  );
+}
+
 function DeadlineChip({ task }: { task: TaskWithMeta }) {
-  if (!task.deadline) return null;
-  const overdue = dueBucket(task) === "overdue" && task.status !== "done";
+  if (!task.deadline) {
+    return <span className="w-16" aria-hidden />;
+  }
+  const overdue = dueBucket(task) === "overdue" && !task.done;
   return (
     <span
       className={cn(
-        "flex items-center gap-1 text-xs whitespace-nowrap",
+        "flex w-16 items-center justify-end gap-1 text-xs whitespace-nowrap",
         overdue ? "font-medium text-destructive" : "text-muted-foreground",
       )}
     >
@@ -463,19 +472,18 @@ function DeadlineChip({ task }: { task: TaskWithMeta }) {
 }
 
 function AvatarStack({ people }: { people: Person[] }) {
-  if (people.length === 0) return null;
   return (
-    <span className="flex -space-x-1.5">
-      {people.slice(0, 3).map((person) => (
+    <span className="flex w-14 justify-end -space-x-1.5">
+      {people.slice(0, 2).map((person) => (
         <UserAvatar
           key={person.id}
           person={person}
           className="size-5 ring-2 ring-background"
         />
       ))}
-      {people.length > 3 ? (
+      {people.length > 2 ? (
         <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground ring-2 ring-background">
-          +{people.length - 3}
+          +{people.length - 2}
         </span>
       ) : null}
     </span>
@@ -485,46 +493,36 @@ function AvatarStack({ people }: { people: Person[] }) {
 function TaskRow({
   task,
   showProject,
-  isFirst,
   onOpen,
   onToggleDone,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
-  isFirst: boolean;
   onOpen: () => void;
   onToggleDone: (done: boolean) => void;
 }) {
   return (
     <div
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-3 bg-background px-3 py-2.5 text-left hover:bg-muted/50",
-        !isFirst && "border-t",
-      )}
+      className="flex w-full cursor-pointer items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50"
       onClick={onOpen}
     >
-      <span onClick={(event) => event.stopPropagation()} className="flex">
-        <Checkbox
-          checked={task.status === "done"}
-          onCheckedChange={(checked) => onToggleDone(checked === true)}
-          aria-label={`Mark "${task.title}" as ${task.status === "done" ? "not done" : "done"}`}
-        />
-      </span>
+      <DoneCheckbox task={task} onToggleDone={onToggleDone} />
       <span
         className={cn(
           "min-w-0 flex-1 truncate text-sm",
-          task.status === "done" && "text-muted-foreground line-through",
+          task.done && "text-muted-foreground line-through",
         )}
       >
         {task.title}
       </span>
-      {task.status === "in_progress" ? (
-        <Badge variant="secondary">{statusLabel(task.status)}</Badge>
-      ) : null}
-      {showProject && task.projectName ? (
-        <Badge variant="outline" className="max-w-32">
-          <span className="truncate">{task.projectName}</span>
-        </Badge>
+      {showProject ? (
+        <span className="flex w-36 justify-end">
+          {task.projectName ? (
+            <Badge variant="outline" className="max-w-36">
+              <span className="truncate">{task.projectName}</span>
+            </Badge>
+          ) : null}
+        </span>
       ) : null}
       <DeadlineChip task={task} />
       <AvatarStack people={task.assignees} />
@@ -536,10 +534,12 @@ function TaskCard({
   task,
   showProject,
   className,
+  onToggleDone,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
   className?: string;
+  onToggleDone?: (done: boolean) => void;
 }) {
   return (
     <div
@@ -548,32 +548,35 @@ function TaskCard({
         className,
       )}
     >
-      <span
-        className={cn(
-          "text-sm font-medium",
-          task.status === "done" && "text-muted-foreground line-through",
-        )}
-      >
-        {task.title}
+      <span className="flex items-start gap-2.5">
+        {onToggleDone ? (
+          <DoneCheckbox task={task} onToggleDone={onToggleDone} />
+        ) : null}
+        <span
+          className={cn(
+            "min-w-0 flex-1 text-sm font-medium",
+            task.done && "text-muted-foreground line-through",
+          )}
+        >
+          {task.title}
+        </span>
       </span>
       {task.description ? (
         <span className="line-clamp-2 text-xs text-muted-foreground">
           {task.description}
         </span>
       ) : null}
-      {showProject || task.deadline || task.assignees.length > 0 ? (
-        <span className="flex items-center gap-2">
-          {showProject && task.projectName ? (
-            <Badge variant="outline" className="max-w-28">
-              <span className="truncate">{task.projectName}</span>
-            </Badge>
-          ) : null}
-          <DeadlineChip task={task} />
-          <span className="ml-auto">
-            <AvatarStack people={task.assignees} />
-          </span>
+      <span className="flex items-center gap-2">
+        {showProject && task.projectName ? (
+          <Badge variant="outline" className="max-w-28">
+            <span className="truncate">{task.projectName}</span>
+          </Badge>
+        ) : null}
+        <DeadlineChip task={task} />
+        <span className="ml-auto">
+          <AvatarStack people={task.assignees} />
         </span>
-      ) : null}
+      </span>
     </div>
   );
 }
