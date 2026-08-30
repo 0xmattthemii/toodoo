@@ -7,12 +7,10 @@ import { db } from "@/db";
 import { taskAssignees, tasks } from "@/db/schema";
 import { canAccessTask, requireMembership } from "@/lib/data";
 import { requireSession } from "@/lib/session";
-import type { TaskStatus } from "@/lib/types";
 
 type TaskInput = {
   title: string;
   description?: string;
-  status?: TaskStatus;
   deadline?: string | null; // ISO string
   projectId?: string | null;
   assigneeIds?: string[];
@@ -32,7 +30,6 @@ export async function createTask(input: TaskInput) {
     .values({
       title,
       description: input.description?.trim() || null,
-      status: input.status ?? "todo",
       deadline: input.deadline ? new Date(input.deadline) : null,
       projectId: input.projectId || null,
       createdBy: session.user.id,
@@ -69,7 +66,6 @@ export async function updateTask(taskId: string, input: TaskInput) {
     .set({
       title,
       description: input.description?.trim() || null,
-      status: input.status ?? task.status,
       deadline: input.deadline ? new Date(input.deadline) : null,
       projectId: nextProjectId,
       updatedAt: new Date(),
@@ -91,14 +87,14 @@ export async function updateTask(taskId: string, input: TaskInput) {
   return { error: undefined };
 }
 
-export async function setTaskStatus(taskId: string, status: TaskStatus) {
+export async function setTaskDone(taskId: string, done: boolean) {
   const session = await requireSession();
   const task = await canAccessTask(taskId, session.user.id);
   if (!task) return { error: "Task not found" };
 
   await db
     .update(tasks)
-    .set({ status, updatedAt: new Date() })
+    .set({ done, updatedAt: new Date() })
     .where(eq(tasks.id, taskId));
   revalidatePath("/", "layout");
   return { error: undefined };

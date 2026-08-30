@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, ListFilter, Plus, X } from "lucide-react";
+import { Bookmark, Eye, EyeOff, ListFilter, Plus, X } from "lucide-react";
 import { useTransition } from "react";
 import { toast } from "sonner";
 
@@ -28,20 +28,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  TASK_STATUSES,
-  type BoardFilter,
-  type BoardMode,
-  type FilterField,
-  type GroupBy,
+import type {
+  BoardFilter,
+  BoardMode,
+  FilterField,
+  GroupBy,
 } from "@/lib/types";
 
 const GROUP_ITEMS: { value: GroupBy; label: string }[] = [
-  { value: "status", label: "Status" },
+  { value: "none", label: "None" },
   { value: "project", label: "Project" },
   { value: "assignee", label: "Assignee" },
   { value: "deadline", label: "Deadline" },
-  { value: "none", label: "None" },
 ];
 
 const DEADLINE_VALUES = [
@@ -53,7 +51,6 @@ const DEADLINE_VALUES = [
 ];
 
 const FIELD_LABELS: Record<FilterField, string> = {
-  status: "Status",
   assignee: "Assignee",
   project: "Project",
   deadline: "Deadline",
@@ -63,15 +60,10 @@ export function BoardToolbar() {
   const board = useBoard();
   const [pending, startTransition] = useTransition();
 
-  const { config, options, scopedProjectId, viewId, dirty } = board;
+  const { config, options, scopedProjectId, viewId, dirty, showDone } = board;
 
   function filterValueLabel(filter: BoardFilter): string {
     switch (filter.field) {
-      case "status":
-        return (
-          TASK_STATUSES.find((status) => status.value === filter.value)
-            ?.label ?? filter.value
-        );
       case "deadline":
         return (
           DEADLINE_VALUES.find((option) => option.value === filter.value)
@@ -135,28 +127,6 @@ export function BoardToolbar() {
           </TabsList>
         </Tabs>
 
-        <div className="ml-auto flex items-center gap-2">
-          {viewId && dirty ? (
-            <LoadingButton
-              variant="outline"
-              size="sm"
-              onClick={saveViewChanges}
-              loading={pending}
-            >
-              <Bookmark />
-              Save changes
-            </LoadingButton>
-          ) : null}
-          {!viewId && !scopedProjectId ? <ViewDialog /> : null}
-          <Button size="sm" onClick={board.openCreate}>
-            <Plus />
-            New task
-          </Button>
-        </div>
-      </div>
-
-      {/* Grouping + filter row — always rendered so the layout doesn't shift. */}
-      <div className="flex min-h-7 flex-wrap items-center gap-2">
         <Select
           value={config.groupBy}
           onValueChange={(value) => board.setGroupBy(value as GroupBy)}
@@ -176,27 +146,13 @@ export function BoardToolbar() {
             ))}
           </SelectContent>
         </Select>
+
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
+          <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
             <ListFilter />
             Add filter
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-44">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {TASK_STATUSES.map((status) => (
-                  <DropdownMenuItem
-                    key={status.value}
-                    onClick={() =>
-                      board.addFilter({ field: "status", value: status.value })
-                    }
-                  >
-                    {status.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
@@ -256,6 +212,28 @@ export function BoardToolbar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <div className="ml-auto flex items-center gap-2">
+          {viewId && dirty ? (
+            <LoadingButton
+              variant="outline"
+              size="sm"
+              onClick={saveViewChanges}
+              loading={pending}
+            >
+              <Bookmark />
+              Save changes
+            </LoadingButton>
+          ) : null}
+          {!viewId && !scopedProjectId ? <ViewDialog /> : null}
+          <Button size="sm" onClick={board.openCreate}>
+            <Plus />
+            New task
+          </Button>
+        </div>
+      </div>
+
+      {/* Active filters row — always rendered so the layout doesn't shift. */}
+      <div className="flex min-h-7 flex-wrap items-center gap-2">
         {config.filters.map((filter) => (
           <Badge
             key={`${filter.field}:${filter.value}`}
@@ -276,6 +254,16 @@ export function BoardToolbar() {
             </button>
           </Badge>
         ))}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-pressed={showDone}
+          className="ml-auto text-muted-foreground"
+          onClick={() => board.setShowDone(!showDone)}
+        >
+          {showDone ? <Eye /> : <EyeOff />}
+          Completed
+        </Button>
       </div>
 
       <TaskDialog

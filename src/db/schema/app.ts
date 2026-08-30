@@ -1,4 +1,5 @@
 import {
+  boolean,
   jsonb,
   pgTable,
   primaryKey,
@@ -86,9 +87,7 @@ export const tasks = pgTable("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   description: text("description"),
-  status: text("status", { enum: ["todo", "in_progress", "done"] })
-    .notNull()
-    .default("todo"),
+  done: boolean("done").notNull().default(false),
   deadline: timestamp("deadline", { withTimezone: true }),
   projectId: uuid("project_id").references(() => projects.id, {
     onDelete: "cascade",

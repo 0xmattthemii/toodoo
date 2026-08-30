@@ -1,12 +1,4 @@
-export type TaskStatus = "todo" | "in_progress" | "done";
-
 export type Role = "admin" | "member";
-
-export const TASK_STATUSES: { value: TaskStatus; label: string }[] = [
-  { value: "todo", label: "To do" },
-  { value: "in_progress", label: "In progress" },
-  { value: "done", label: "Done" },
-];
 
 export type Person = {
   id: string;
@@ -30,7 +22,7 @@ export type TaskWithMeta = {
   id: string;
   title: string;
   description: string | null;
-  status: TaskStatus;
+  done: boolean;
   deadline: Date | null;
   projectId: string | null;
   projectName: string | null;
@@ -49,8 +41,8 @@ export type PendingInvitation = {
 // ---- Board configuration (used by the toolbar, board content, and saved views) ----
 
 export type BoardMode = "list" | "kanban";
-export type GroupBy = "status" | "project" | "assignee" | "deadline" | "none";
-export type FilterField = "status" | "assignee" | "project" | "deadline";
+export type GroupBy = "project" | "assignee" | "deadline" | "none";
+export type FilterField = "assignee" | "project" | "deadline";
 
 export type BoardFilter = { field: FilterField; value: string };
 
@@ -62,7 +54,7 @@ export type BoardConfig = {
 
 export const DEFAULT_BOARD_CONFIG: BoardConfig = {
   mode: "list",
-  groupBy: "status",
+  groupBy: "none",
   filters: [],
 };
 

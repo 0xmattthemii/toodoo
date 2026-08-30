@@ -178,7 +178,7 @@ const taskSelection = {
   id: tasks.id,
   title: tasks.title,
   description: tasks.description,
-  status: tasks.status,
+  done: tasks.done,
   deadline: tasks.deadline,
   projectId: tasks.projectId,
   projectName: projects.name,
@@ -258,6 +258,22 @@ export async function canAccessTask(taskId: string, userId: string) {
   return null;
 }
 
+/** Drops config parts from older app versions (e.g. the removed status field). */
+function normalizeConfig(config: BoardConfig): BoardConfig {
+  const groupBy = ["project", "assignee", "deadline", "none"].includes(
+    config.groupBy,
+  )
+    ? config.groupBy
+    : "none";
+  return {
+    mode: config.mode === "kanban" ? "kanban" : "list",
+    groupBy,
+    filters: (config.filters ?? []).filter((filter) =>
+      ["assignee", "project", "deadline"].includes(filter.field),
+    ),
+  };
+}
+
 export async function getUserViews(userId: string): Promise<ViewSummary[]> {
   const rows = await db
     .select()
@@ -269,7 +285,7 @@ export async function getUserViews(userId: string): Promise<ViewSummary[]> {
     name: row.name,
     icon: row.icon,
     color: row.color,
-    config: row.config as BoardConfig,
+    config: normalizeConfig(row.config as BoardConfig),
   }));
 }
 
@@ -287,7 +303,7 @@ export async function getView(
     name: row.name,
     icon: row.icon,
     color: row.color,
-    config: row.config as BoardConfig,
+    config: normalizeConfig(row.config as BoardConfig),
   };
 }
 

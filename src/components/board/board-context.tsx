@@ -37,6 +37,10 @@ type BoardContextValue = {
   dirty: boolean;
   markSaved: () => void;
 
+  /** Completed tasks are hidden by default. */
+  showDone: boolean;
+  setShowDone: (show: boolean) => void;
+
   dialogTask: TaskWithMeta | null;
   dialogOpen: boolean;
   openCreate: () => void;
@@ -89,6 +93,7 @@ export function BoardProvider({
   });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTask, setDialogTask] = useState<TaskWithMeta | null>(null);
+  const [showDone, setShowDone] = useState(false);
 
   // If the saved view is updated server-side, re-seed the local state.
   const [prevInitial, setPrevInitial] = useState(() => normalize(initial));
@@ -170,6 +175,8 @@ export function BoardProvider({
       viewId,
       dirty: normalize(config) !== baseline,
       markSaved,
+      showDone,
+      setShowDone,
       dialogTask,
       dialogOpen,
       openCreate,
@@ -189,6 +196,7 @@ export function BoardProvider({
       viewId,
       baseline,
       markSaved,
+      showDone,
       dialogTask,
       dialogOpen,
       openCreate,
