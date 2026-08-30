@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { createProject } from "@/actions/projects";
+import { IconColorPicker } from "@/components/icon-color-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,12 +20,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { createProject } from "@/actions/projects";
 
 export function ProjectDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [icon, setIcon] = useState<string | null>(null);
+  const [color, setColor] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Reset appearance selections each time the dialog opens.
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setIcon(null);
+      setColor(null);
+    }
+  }
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -32,6 +45,8 @@ export function ProjectDialog() {
       const result = await createProject({
         name: String(form.get("name")),
         description: String(form.get("description")),
+        icon,
+        color,
       });
       if (result.error) {
         toast.error(result.error);
@@ -75,9 +90,15 @@ export function ProjectDialog() {
               id="project-description"
               name="description"
               placeholder="Optional"
-              rows={3}
+              rows={2}
             />
           </div>
+          <IconColorPicker
+            icon={icon}
+            color={color}
+            onIconChange={setIcon}
+            onColorChange={setColor}
+          />
           <DialogFooter>
             <Button
               type="button"

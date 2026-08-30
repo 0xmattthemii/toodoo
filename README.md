@@ -3,9 +3,10 @@
 A simple, minimalist todo app for teams.
 
 - **Tasks** with deadlines, status, and one or more assignees
-- **Projects** to group tasks, with member roles (admin / member)
+- **Projects** to group tasks, with member roles (admin / member) and a custom icon + color
 - **Invitations** by email — existing users are added instantly, new users join automatically when they sign up
-- **Flexible views** — list or kanban, group by status / project / assignee / deadline, filter by status, people, project, and due date; drag & drop across kanban status columns
+- **Flexible boards** — list or kanban, an explicit "Group by" control, and stackable filters (field → condition) shown as removable badges; drag & drop across kanban columns
+- **Saved views** — save any grouping/filter combination as a named view with its own icon and color; views live in the sidebar and can be edited, updated, or deleted
 
 ## Stack
 

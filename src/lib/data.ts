@@ -8,14 +8,17 @@ import {
   taskAssignees,
   tasks,
   user,
+  views,
 } from "@/db/schema";
 import type {
+  BoardConfig,
   MemberWithUser,
   PendingInvitation,
   Person,
   ProjectSummary,
   Role,
   TaskWithMeta,
+  ViewSummary,
 } from "@/lib/types";
 
 export async function getUserProjects(
@@ -26,6 +29,8 @@ export async function getUserProjects(
       id: projects.id,
       name: projects.name,
       description: projects.description,
+      icon: projects.icon,
+      color: projects.color,
       role: projectMembers.role,
     })
     .from(projectMembers)
@@ -251,6 +256,39 @@ export async function canAccessTask(taskId: string, userId: string) {
     if (membership) return task;
   }
   return null;
+}
+
+export async function getUserViews(userId: string): Promise<ViewSummary[]> {
+  const rows = await db
+    .select()
+    .from(views)
+    .where(eq(views.ownerId, userId))
+    .orderBy(asc(views.createdAt));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    icon: row.icon,
+    color: row.color,
+    config: row.config as BoardConfig,
+  }));
+}
+
+export async function getView(
+  viewId: string,
+  userId: string,
+): Promise<ViewSummary | null> {
+  const [row] = await db
+    .select()
+    .from(views)
+    .where(and(eq(views.id, viewId), eq(views.ownerId, userId)));
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon,
+    color: row.color,
+    config: row.config as BoardConfig,
+  };
 }
 
 /** Turn pending invitations matching the user's email into memberships. */

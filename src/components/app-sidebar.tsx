@@ -5,7 +5,7 @@ import { NavUser } from "@/components/nav-user";
 import { ProjectDialog } from "@/components/project-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function SidebarProjectsSkeleton() {
+export function SidebarListSkeleton() {
   return (
     <div className="flex flex-col gap-1 px-2" aria-hidden>
       {[0, 1, 2].map((i) => (
@@ -21,9 +21,11 @@ export function SidebarProjectsSkeleton() {
 export function AppSidebar({
   user,
   projects,
+  views,
 }: {
   user: { name: string; email: string; image: string | null };
   projects: React.ReactNode;
+  views: React.ReactNode;
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-muted/30">
@@ -44,14 +46,24 @@ export function AppSidebar({
         </Link>
       </nav>
 
-      <div className="mt-4 flex min-h-0 flex-1 flex-col">
-        <div className="flex items-center justify-between px-4 pb-1">
-          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Projects
-          </span>
-          <ProjectDialog />
+      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
+        <div>
+          <div className="flex items-center justify-between px-4 pb-1">
+            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Projects
+            </span>
+            <ProjectDialog />
+          </div>
+          {projects}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pb-2">{projects}</div>
+        <div>
+          <div className="flex items-center justify-between px-4 pb-1">
+            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Views
+            </span>
+          </div>
+          {views}
+        </div>
       </div>
 
       <div className="border-t p-2">
