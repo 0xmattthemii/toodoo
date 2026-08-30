@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 
-import { AppSidebar, SidebarProjectsSkeleton } from "@/components/app-sidebar";
+import { AppSidebar, SidebarListSkeleton } from "@/components/app-sidebar";
 import { SidebarProjects } from "@/components/sidebar-projects";
+import { SidebarViews } from "@/components/sidebar-views";
 import { acceptPendingInvitations } from "@/lib/data";
 import { requireSession } from "@/lib/session";
 
@@ -27,8 +28,13 @@ export default async function AppLayout({
           image: session.user.image ?? null,
         }}
         projects={
-          <Suspense fallback={<SidebarProjectsSkeleton />}>
+          <Suspense fallback={<SidebarListSkeleton />}>
             <SidebarProjects userId={session.user.id} />
+          </Suspense>
+        }
+        views={
+          <Suspense fallback={<SidebarListSkeleton />}>
+            <SidebarViews userId={session.user.id} />
           </Suspense>
         }
       />

@@ -1,4 +1,5 @@
 import {
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -13,9 +14,26 @@ export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
+  icon: text("icon"),
+  color: text("color"),
   createdBy: text("created_by")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/** Saved board configurations (group-by + filters + list/kanban), private to their owner. */
+export const views = pgTable("views", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  icon: text("icon"),
+  color: text("color"),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  config: jsonb("config").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

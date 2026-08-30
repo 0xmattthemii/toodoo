@@ -16,51 +16,26 @@ import {
 } from "@dnd-kit/core";
 import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { moveTaskToProject, setTaskStatus } from "@/actions/tasks";
-import { TaskDialog } from "@/components/task-dialog";
+import { useBoard } from "@/components/board/board-context";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
   TASK_STATUSES,
+  type BoardFilter,
   type Person,
   type ProjectSummary,
   type TaskStatus,
   type TaskWithMeta,
 } from "@/lib/types";
 
-type View = "list" | "kanban";
-type GroupBy = "status" | "project" | "assignee" | "deadline" | "none";
 type DueBucket = "overdue" | "today" | "week" | "later" | "none";
-
-const GROUP_ITEMS: { value: GroupBy; label: string }[] = [
-  { value: "status", label: "By status" },
-  { value: "project", label: "By project" },
-  { value: "assignee", label: "By assignee" },
-  { value: "deadline", label: "By deadline" },
-  { value: "none", label: "No grouping" },
-];
-
-const DUE_ITEMS = [
-  { value: "all", label: "Any deadline" },
-  { value: "overdue", label: "Overdue" },
-  { value: "today", label: "Due today" },
-  { value: "week", label: "Due this week" },
-  { value: "none", label: "No deadline" },
-];
 
 const DUE_BUCKET_LABELS: Record<DueBucket, string> = {
   overdue: "Overdue",
@@ -80,6 +55,28 @@ function dueBucket(task: Pick<TaskWithMeta, "deadline">): DueBucket {
   return "later";
 }
 
+function matchesFilter(
+  task: TaskWithMeta,
+  filter: BoardFilter,
+  currentUserId: string,
+) {
+  switch (filter.field) {
+    case "status":
+      return task.status === filter.value;
+    case "deadline":
+      return dueBucket(task) === filter.value;
+    case "assignee":
+      if (filter.value === "unassigned") return task.assignees.length === 0;
+      if (filter.value === "me") {
+        return task.assignees.some((person) => person.id === currentUserId);
+      }
+      return task.assignees.some((person) => person.id === filter.value);
+    case "project":
+      if (filter.value === "none") return !task.projectId;
+      return task.projectId === filter.value;
+  }
+}
+
 function statusLabel(status: TaskStatus) {
   return TASK_STATUSES.find((item) => item.value === status)?.label ?? status;
 }
@@ -92,28 +89,23 @@ const collisionDetection: CollisionDetection = (args) => {
 
 type Group = { key: string; label: string; tasks: TaskWithMeta[] };
 
-export function TaskBoard({
+export function BoardContent({
   tasks,
   projects,
   people,
-  currentUserId,
-  scopedProjectId,
 }: {
   tasks: TaskWithMeta[];
   projects: ProjectSummary[];
   people: Person[];
-  currentUserId: string;
-  scopedProjectId?: string;
 }) {
-  const [view, setView] = useState<View>("list");
-  const [groupBy, setGroupBy] = useState<GroupBy>("status");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
-  const [projectFilter, setProjectFilter] = useState("all");
-  const [dueFilter, setDueFilter] = useState("all");
+  const board = useBoard();
+  const { config, currentUserId, scopedProjectId, registerOptions } = board;
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<TaskWithMeta | null>(null);
+  // Feed dropdown options (filter values, task dialog selects) to the toolbar.
+  useEffect(() => {
+    registerOptions({ projects, people });
+  }, [registerOptions, projects, people]);
+
   const [taskOverrides, setTaskOverrides] = useState<
     Record<string, Partial<TaskWithMeta>>
   >({});
@@ -133,49 +125,20 @@ export function TaskBoard({
     setTaskOverrides({});
   }
 
-  const effectiveTasks = useMemo(
-    () =>
-      tasks.map((task) =>
-        taskOverrides[task.id] ? { ...task, ...taskOverrides[task.id] } : task,
-      ),
-    [tasks, taskOverrides],
-  );
-
   const filteredTasks = useMemo(() => {
-    return effectiveTasks.filter((task) => {
-      if (statusFilter !== "all" && task.status !== statusFilter) return false;
-      if (assigneeFilter === "unassigned") {
-        if (task.assignees.length > 0) return false;
-      } else if (assigneeFilter === "me") {
-        if (!task.assignees.some((person) => person.id === currentUserId))
-          return false;
-      } else if (assigneeFilter !== "all") {
-        if (!task.assignees.some((person) => person.id === assigneeFilter))
-          return false;
-      }
-      if (!scopedProjectId && projectFilter !== "all") {
-        if (projectFilter === "none") {
-          if (task.projectId) return false;
-        } else if (task.projectId !== projectFilter) {
-          return false;
-        }
-      }
-      if (dueFilter !== "all" && dueBucket(task) !== dueFilter) return false;
-      return true;
-    });
-  }, [
-    effectiveTasks,
-    statusFilter,
-    assigneeFilter,
-    projectFilter,
-    dueFilter,
-    currentUserId,
-    scopedProjectId,
-  ]);
+    const effective = tasks.map((task) =>
+      taskOverrides[task.id] ? { ...task, ...taskOverrides[task.id] } : task,
+    );
+    return effective.filter((task) =>
+      config.filters.every((filter) =>
+        matchesFilter(task, filter, currentUserId),
+      ),
+    );
+  }, [tasks, taskOverrides, config.filters, currentUserId]);
 
   const groups = useMemo<Group[]>(() => {
     const list = filteredTasks;
-    switch (groupBy) {
+    switch (config.groupBy) {
       case "status":
         return TASK_STATUSES.map(({ value, label }) => ({
           key: value,
@@ -226,7 +189,15 @@ export function TaskBoard({
       default:
         return [{ key: "all", label: "All tasks", tasks: list }];
     }
-  }, [filteredTasks, groupBy, projects, people, scopedProjectId]);
+  }, [filteredTasks, config.groupBy, projects, people, scopedProjectId]);
+
+  function revertOverride(taskId: string) {
+    setTaskOverrides((current) => {
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+  }
 
   function changeStatus(taskId: string, status: TaskStatus) {
     setTaskOverrides((current) => ({
@@ -237,11 +208,7 @@ export function TaskBoard({
       const result = await setTaskStatus(taskId, status);
       if (result.error) {
         toast.error(result.error);
-        setTaskOverrides((current) => {
-          const next = { ...current };
-          delete next[taskId];
-          return next;
-        });
+        revertOverride(taskId);
       }
     });
   }
@@ -258,29 +225,20 @@ export function TaskBoard({
       const result = await moveTaskToProject(taskId, projectId);
       if (result.error) {
         toast.error(result.error);
-        setTaskOverrides((current) => {
-          const next = { ...current };
-          delete next[taskId];
-          return next;
-        });
+        revertOverride(taskId);
       }
     });
   }
 
-  function openCreate() {
-    setEditingTask(null);
-    setDialogOpen(true);
-  }
-
   function openEdit(task: TaskWithMeta) {
     if (justDragged.current) return;
-    setEditingTask(task);
-    setDialogOpen(true);
+    board.openEdit(task);
   }
 
   // Drops persist a real move only for these groupings.
   const canDrag =
-    view === "kanban" && (groupBy === "status" || groupBy === "project");
+    config.mode === "kanban" &&
+    (config.groupBy === "status" || config.groupBy === "project");
 
   function onDragStart(event: DragStartEvent) {
     setActiveTask((event.active.data.current?.task as TaskWithMeta) ?? null);
@@ -297,260 +255,120 @@ export function TaskBoard({
     const overKey = event.over?.id;
     if (!task || typeof overKey !== "string") return;
 
-    if (groupBy === "status") {
+    if (config.groupBy === "status") {
       const status = overKey as TaskStatus;
       if (status !== task.status) changeStatus(task.id, status);
-    } else if (groupBy === "project") {
+    } else if (config.groupBy === "project") {
       const projectId = overKey === "none" ? null : overKey;
       if (projectId !== task.projectId) moveProject(task.id, projectId);
     }
   }
 
-  const assigneeItems = [
-    { value: "all", label: "All people" },
-    { value: "me", label: "Assigned to me" },
-    { value: "unassigned", label: "Unassigned" },
-    ...people
-      .filter((person) => person.id !== currentUserId)
-      .map((person) => ({ value: person.id, label: person.name })),
-  ];
+  const showProject = !scopedProjectId && config.groupBy !== "project";
 
-  const projectItems = [
-    { value: "all", label: "All projects" },
-    { value: "none", label: "No project" },
-    ...projects.map((project) => ({ value: project.id, label: project.name })),
-  ];
-
-  const statusItems = [
-    { value: "all", label: "All statuses" },
-    ...TASK_STATUSES,
-  ];
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2 px-6">
-        <Tabs value={view} onValueChange={(value) => setView(value as View)}>
-          <TabsList>
-            <TabsTrigger value="list">List</TabsTrigger>
-            <TabsTrigger value="kanban">Kanban</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        <Select
-          value={groupBy}
-          onValueChange={(value) => setGroupBy(value as GroupBy)}
-          items={GROUP_ITEMS}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {GROUP_ITEMS.filter(
-              (item) => !(scopedProjectId && item.value === "project"),
-            ).map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => setStatusFilter(value as string)}
-          items={statusItems}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {statusItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={assigneeFilter}
-          onValueChange={(value) => setAssigneeFilter(value as string)}
-          items={assigneeItems}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {assigneeItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {!scopedProjectId ? (
-          <Select
-            value={projectFilter}
-            onValueChange={(value) => setProjectFilter(value as string)}
-            items={projectItems}
-          >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {projectItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-
-        <Select
-          value={dueFilter}
-          onValueChange={(value) => setDueFilter(value as string)}
-          items={DUE_ITEMS}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {DUE_ITEMS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="ml-auto">
-          <Button size="sm" onClick={openCreate}>
+  if (filteredTasks.length === 0 && config.mode === "list") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          {tasks.length > 0
+            ? "No tasks match the current filters."
+            : "No tasks yet. Create your first one."}
+        </p>
+        {tasks.length === 0 ? (
+          <Button size="sm" variant="outline" onClick={board.openCreate}>
             <Plus />
             New task
           </Button>
-        </div>
+        ) : null}
       </div>
+    );
+  }
 
-      {filteredTasks.length === 0 && view === "list" ? (
-        <EmptyState hasAnyTask={tasks.length > 0} onCreate={openCreate} />
-      ) : view === "list" ? (
-        <div className="flex flex-col gap-6 px-6 pb-6">
-          {groups.map((group) => (
-            <section key={group.key}>
-              {groupBy !== "none" ? (
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  {group.label}
-                  <span className="text-xs text-muted-foreground">
-                    {group.tasks.length}
-                  </span>
-                </h3>
-              ) : null}
-              <div className="overflow-hidden rounded-xl border">
-                {group.tasks.length === 0 ? (
-                  <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                    No tasks
-                  </p>
-                ) : (
-                  group.tasks.map((task, index) => (
-                    <TaskRow
-                      key={`${group.key}-${task.id}`}
-                      task={task}
-                      showProject={!scopedProjectId && groupBy !== "project"}
-                      isFirst={index === 0}
-                      onOpen={() => openEdit(task)}
-                      onToggleDone={(done) =>
-                        changeStatus(task.id, done ? "done" : "todo")
-                      }
-                    />
-                  ))
-                )}
-              </div>
-            </section>
-          ))}
-        </div>
-      ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={collisionDetection}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragCancel={() => setActiveTask(null)}
-        >
-          <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6">
-            {groups.map((group) => (
-              <KanbanColumn
-                key={group.key}
-                group={group}
-                droppable={canDrag}
-                dragging={activeTask !== null}
-              >
-                {group.tasks.map((task) => (
-                  <DraggableTaskCard
-                    key={`${group.key}-${task.id}`}
-                    dragId={`${group.key}::${task.id}`}
-                    task={task}
-                    showProject={!scopedProjectId && groupBy !== "project"}
-                    draggable={canDrag}
-                    onOpen={() => openEdit(task)}
-                  />
-                ))}
-              </KanbanColumn>
-            ))}
-          </div>
-          <DragOverlay
-            dropAnimation={{
-              duration: 200,
-              easing: "cubic-bezier(0.2, 0.8, 0.35, 1)",
-            }}
-          >
-            {activeTask ? (
-              <div className="rotate-2 cursor-grabbing">
-                <TaskCard
-                  task={activeTask}
-                  showProject={!scopedProjectId && groupBy !== "project"}
-                  className="shadow-lg ring-1 ring-border"
-                />
-              </div>
+  if (config.mode === "list") {
+    return (
+      <div className="flex flex-col gap-6 px-6 pb-6 pt-4">
+        {groups.map((group) => (
+          <section key={group.key}>
+            {config.groupBy !== "none" ? (
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
+                {group.label}
+                <span className="text-xs text-muted-foreground">
+                  {group.tasks.length}
+                </span>
+              </h3>
             ) : null}
-          </DragOverlay>
-        </DndContext>
-      )}
+            <div className="overflow-hidden rounded-xl border">
+              {group.tasks.length === 0 ? (
+                <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                  No tasks
+                </p>
+              ) : (
+                group.tasks.map((task, index) => (
+                  <TaskRow
+                    key={`${group.key}-${task.id}`}
+                    task={task}
+                    showProject={showProject}
+                    isFirst={index === 0}
+                    onOpen={() => openEdit(task)}
+                    onToggleDone={(done) =>
+                      changeStatus(task.id, done ? "done" : "todo")
+                    }
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
 
-      <TaskDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        task={editingTask}
-        projects={projects}
-        people={people}
-        defaultProjectId={scopedProjectId}
-      />
-    </div>
-  );
-}
-
-function EmptyState({
-  hasAnyTask,
-  onCreate,
-}: {
-  hasAnyTask: boolean;
-  onCreate: () => void;
-}) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-      <p className="text-sm text-muted-foreground">
-        {hasAnyTask
-          ? "No tasks match the current filters."
-          : "No tasks yet. Create your first one."}
-      </p>
-      {!hasAnyTask ? (
-        <Button size="sm" variant="outline" onClick={onCreate}>
-          <Plus />
-          New task
-        </Button>
-      ) : null}
-    </div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => setActiveTask(null)}
+    >
+      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6 pt-4">
+        {groups.map((group) => (
+          <KanbanColumn
+            key={group.key}
+            group={group}
+            droppable={canDrag}
+            dragging={activeTask !== null}
+          >
+            {group.tasks.map((task) => (
+              <DraggableTaskCard
+                key={`${group.key}-${task.id}`}
+                dragId={`${group.key}::${task.id}`}
+                task={task}
+                showProject={showProject}
+                draggable={canDrag}
+                onOpen={() => openEdit(task)}
+              />
+            ))}
+          </KanbanColumn>
+        ))}
+      </div>
+      <DragOverlay
+        dropAnimation={{
+          duration: 200,
+          easing: "cubic-bezier(0.2, 0.8, 0.35, 1)",
+        }}
+      >
+        {activeTask ? (
+          <div className="rotate-2 cursor-grabbing">
+            <TaskCard
+              task={activeTask}
+              showProject={showProject}
+              className="shadow-lg ring-1 ring-border"
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 

@@ -12,6 +12,8 @@ import { requireSession } from "@/lib/session";
 export async function createProject(input: {
   name: string;
   description?: string;
+  icon?: string | null;
+  color?: string | null;
 }) {
   const session = await requireSession();
   const name = input.name.trim();
@@ -22,6 +24,8 @@ export async function createProject(input: {
     .values({
       name,
       description: input.description?.trim() || null,
+      icon: input.icon || null,
+      color: input.color || null,
       createdBy: session.user.id,
     })
     .returning();
@@ -38,7 +42,12 @@ export async function createProject(input: {
 
 export async function updateProject(
   projectId: string,
-  input: { name: string; description?: string },
+  input: {
+    name: string;
+    description?: string;
+    icon?: string | null;
+    color?: string | null;
+  },
 ) {
   const session = await requireSession();
   await requireMembership(projectId, session.user.id, "admin");
@@ -47,7 +56,12 @@ export async function updateProject(
 
   await db
     .update(projects)
-    .set({ name, description: input.description?.trim() || null })
+    .set({
+      name,
+      description: input.description?.trim() || null,
+      icon: input.icon || null,
+      color: input.color || null,
+    })
     .where(eq(projects.id, projectId));
 
   revalidatePath("/", "layout");

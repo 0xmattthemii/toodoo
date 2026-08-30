@@ -1,39 +1,37 @@
 import { Suspense } from "react";
 
-import { BoardSkeleton } from "@/components/board-skeleton";
-import { TaskBoard } from "@/components/task-board";
+import { BoardContent } from "@/components/board/board-content";
+import { BoardProvider } from "@/components/board/board-context";
+import { BoardToolbar } from "@/components/board/board-toolbar";
+import { BoardContentSkeleton } from "@/components/board-skeleton";
 import { getKnownPeople, getUserProjects, getVisibleTasks } from "@/lib/data";
 import { requireSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export default function AllTasksPage() {
+export default async function AllTasksPage() {
+  const session = await requireSession();
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center px-6">
         <h1 className="text-lg font-semibold tracking-tight">All tasks</h1>
       </header>
-      <Suspense fallback={<BoardSkeleton />}>
-        <AllTasksBoard />
-      </Suspense>
+      <BoardProvider currentUserId={session.user.id}>
+        <BoardToolbar />
+        <Suspense fallback={<BoardContentSkeleton />}>
+          <AllTasksContent userId={session.user.id} />
+        </Suspense>
+      </BoardProvider>
     </div>
   );
 }
 
-async function AllTasksBoard() {
-  const session = await requireSession();
+async function AllTasksContent({ userId }: { userId: string }) {
   const [tasks, projects, people] = await Promise.all([
-    getVisibleTasks(session.user.id),
-    getUserProjects(session.user.id),
-    getKnownPeople(session.user.id),
+    getVisibleTasks(userId),
+    getUserProjects(userId),
+    getKnownPeople(userId),
   ]);
-
-  return (
-    <TaskBoard
-      tasks={tasks}
-      projects={projects}
-      people={people}
-      currentUserId={session.user.id}
-    />
-  );
+  return <BoardContent tasks={tasks} projects={projects} people={people} />;
 }

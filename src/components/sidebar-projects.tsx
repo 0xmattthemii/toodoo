@@ -1,6 +1,7 @@
 import { Hash } from "lucide-react";
 import Link from "next/link";
 
+import { AppearanceIcon } from "@/lib/appearance";
 import { getUserProjects } from "@/lib/data";
 
 export async function SidebarProjects({ userId }: { userId: string }) {
@@ -22,7 +23,12 @@ export async function SidebarProjects({ userId }: { userId: string }) {
           href={`/projects/${project.id}`}
           className="flex h-8 items-center gap-2 rounded-lg px-2 text-sm text-foreground hover:bg-accent"
         >
-          <Hash className="size-4 shrink-0 text-muted-foreground" />
+          <AppearanceIcon
+            icon={project.icon}
+            color={project.color}
+            fallback={Hash}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
           <span className="truncate">{project.name}</span>
         </Link>
       ))}

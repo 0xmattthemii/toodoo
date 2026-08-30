@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { deleteProject, updateProject } from "@/actions/projects";
+import { IconColorPicker } from "@/components/icon-color-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,10 +29,28 @@ import { Textarea } from "@/components/ui/textarea";
 export function ProjectActions({
   project,
 }: {
-  project: { id: string; name: string; description: string | null };
+  project: {
+    id: string;
+    name: string;
+    description: string | null;
+    icon: string | null;
+    color: string | null;
+  };
 }) {
   const [editOpen, setEditOpen] = useState(false);
+  const [icon, setIcon] = useState<string | null>(project.icon);
+  const [color, setColor] = useState<string | null>(project.color);
   const [pending, startTransition] = useTransition();
+
+  // Re-seed appearance from the project each time the dialog opens.
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (editOpen !== prevOpen) {
+    setPrevOpen(editOpen);
+    if (editOpen) {
+      setIcon(project.icon);
+      setColor(project.color);
+    }
+  }
 
   function onSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,6 +59,8 @@ export function ProjectActions({
       const result = await updateProject(project.id, {
         name: String(form.get("name")),
         description: String(form.get("description")),
+        icon,
+        color,
       });
       if (result.error) {
         toast.error(result.error);
@@ -94,7 +115,7 @@ export function ProjectActions({
           <DialogHeader>
             <DialogTitle>Edit project</DialogTitle>
             <DialogDescription>
-              Rename the project or update its description.
+              Rename the project or change its appearance.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={onSave} className="grid gap-4">
@@ -113,9 +134,15 @@ export function ProjectActions({
                 id="edit-project-description"
                 name="description"
                 defaultValue={project.description ?? ""}
-                rows={3}
+                rows={2}
               />
             </div>
+            <IconColorPicker
+              icon={icon}
+              color={color}
+              onIconChange={setIcon}
+              onColorChange={setColor}
+            />
             <DialogFooter>
               <Button
                 type="button"
