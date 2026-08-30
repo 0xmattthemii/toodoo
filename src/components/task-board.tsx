@@ -1,11 +1,25 @@
 "use client";
 
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { setTaskStatus } from "@/actions/tasks";
+import { moveTaskToProject, setTaskStatus } from "@/actions/tasks";
 import { TaskDialog } from "@/components/task-dialog";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +84,12 @@ function statusLabel(status: TaskStatus) {
   return TASK_STATUSES.find((item) => item.value === status)?.label ?? status;
 }
 
+// Prefer the column under the pointer; fall back to overlap for edge drops.
+const collisionDetection: CollisionDetection = (args) => {
+  const withPointer = pointerWithin(args);
+  return withPointer.length > 0 ? withPointer : rectIntersection(args);
+};
+
 type Group = { key: string; label: string; tasks: TaskWithMeta[] };
 
 export function TaskBoard({
@@ -94,27 +114,31 @@ export function TaskBoard({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskWithMeta | null>(null);
-  const [statusOverrides, setStatusOverrides] = useState<
-    Record<string, TaskStatus>
+  const [taskOverrides, setTaskOverrides] = useState<
+    Record<string, Partial<TaskWithMeta>>
   >({});
-  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
+  const [activeTask, setActiveTask] = useState<TaskWithMeta | null>(null);
+  const justDragged = useRef(false);
   const [, startTransition] = useTransition();
 
-  // Reset optimistic status overrides once fresh server data arrives.
+  const sensors = useSensors(
+    // A small distance threshold keeps plain clicks opening the edit dialog.
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  // Reset optimistic overrides once fresh server data arrives.
   const [prevTasks, setPrevTasks] = useState(tasks);
   if (prevTasks !== tasks) {
     setPrevTasks(tasks);
-    setStatusOverrides({});
+    setTaskOverrides({});
   }
 
   const effectiveTasks = useMemo(
     () =>
       tasks.map((task) =>
-        statusOverrides[task.id]
-          ? { ...task, status: statusOverrides[task.id] }
-          : task,
+        taskOverrides[task.id] ? { ...task, ...taskOverrides[task.id] } : task,
       ),
-    [tasks, statusOverrides],
+    [tasks, taskOverrides],
   );
 
   const filteredTasks = useMemo(() => {
@@ -168,11 +192,12 @@ export function TaskBoard({
             label: project.name,
             tasks: list.filter((task) => task.projectId === project.id),
           }));
-        const noProject = list.filter((task) => !task.projectId);
-        if (noProject.length > 0) {
-          result.push({ key: "none", label: "No project", tasks: noProject });
-        }
-        return result.filter((group) => group.tasks.length > 0);
+        result.push({
+          key: "none",
+          label: "No project",
+          tasks: list.filter((task) => !task.projectId),
+        });
+        return result;
       }
       case "assignee": {
         const result: Group[] = people.map((person) => ({
@@ -204,12 +229,36 @@ export function TaskBoard({
   }, [filteredTasks, groupBy, projects, people, scopedProjectId]);
 
   function changeStatus(taskId: string, status: TaskStatus) {
-    setStatusOverrides((current) => ({ ...current, [taskId]: status }));
+    setTaskOverrides((current) => ({
+      ...current,
+      [taskId]: { ...current[taskId], status },
+    }));
     startTransition(async () => {
       const result = await setTaskStatus(taskId, status);
       if (result.error) {
         toast.error(result.error);
-        setStatusOverrides((current) => {
+        setTaskOverrides((current) => {
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+      }
+    });
+  }
+
+  function moveProject(taskId: string, projectId: string | null) {
+    const projectName = projectId
+      ? (projects.find((project) => project.id === projectId)?.name ?? null)
+      : null;
+    setTaskOverrides((current) => ({
+      ...current,
+      [taskId]: { ...current[taskId], projectId, projectName },
+    }));
+    startTransition(async () => {
+      const result = await moveTaskToProject(taskId, projectId);
+      if (result.error) {
+        toast.error(result.error);
+        setTaskOverrides((current) => {
           const next = { ...current };
           delete next[taskId];
           return next;
@@ -224,8 +273,37 @@ export function TaskBoard({
   }
 
   function openEdit(task: TaskWithMeta) {
+    if (justDragged.current) return;
     setEditingTask(task);
     setDialogOpen(true);
+  }
+
+  // Drops persist a real move only for these groupings.
+  const canDrag =
+    view === "kanban" && (groupBy === "status" || groupBy === "project");
+
+  function onDragStart(event: DragStartEvent) {
+    setActiveTask((event.active.data.current?.task as TaskWithMeta) ?? null);
+  }
+
+  function onDragEnd(event: DragEndEvent) {
+    const task = activeTask;
+    setActiveTask(null);
+    justDragged.current = true;
+    setTimeout(() => {
+      justDragged.current = false;
+    }, 100);
+
+    const overKey = event.over?.id;
+    if (!task || typeof overKey !== "string") return;
+
+    if (groupBy === "status") {
+      const status = overKey as TaskStatus;
+      if (status !== task.status) changeStatus(task.id, status);
+    } else if (groupBy === "project") {
+      const projectId = overKey === "none" ? null : overKey;
+      if (projectId !== task.projectId) moveProject(task.id, projectId);
+    }
   }
 
   const assigneeItems = [
@@ -247,8 +325,6 @@ export function TaskBoard({
     { value: "all", label: "All statuses" },
     ...TASK_STATUSES,
   ];
-
-  const canDrag = view === "kanban" && groupBy === "status";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -357,20 +433,8 @@ export function TaskBoard({
         </div>
       </div>
 
-      {filteredTasks.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            {tasks.length === 0
-              ? "No tasks yet. Create your first one."
-              : "No tasks match the current filters."}
-          </p>
-          {tasks.length === 0 ? (
-            <Button size="sm" variant="outline" onClick={openCreate}>
-              <Plus />
-              New task
-            </Button>
-          ) : null}
-        </div>
+      {filteredTasks.length === 0 && view === "list" ? (
+        <EmptyState hasAnyTask={tasks.length > 0} onCreate={openCreate} />
       ) : view === "list" ? (
         <div className="flex flex-col gap-6 px-6 pb-6">
           {groups.map((group) => (
@@ -407,64 +471,51 @@ export function TaskBoard({
           ))}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6">
-          {groups.map((group) => (
-            <div
-              key={group.key}
-              className={cn(
-                "flex w-72 shrink-0 flex-col rounded-xl bg-muted/50 p-2 transition-colors",
-                canDrag && dragOverGroup === group.key && "bg-accent",
-              )}
-              onDragOver={
-                canDrag
-                  ? (event) => {
-                      event.preventDefault();
-                      setDragOverGroup(group.key);
-                    }
-                  : undefined
-              }
-              onDragLeave={
-                canDrag
-                  ? (event) => {
-                      if (event.currentTarget === event.target) {
-                        setDragOverGroup(null);
-                      }
-                    }
-                  : undefined
-              }
-              onDrop={
-                canDrag
-                  ? (event) => {
-                      event.preventDefault();
-                      setDragOverGroup(null);
-                      const taskId = event.dataTransfer.getData("text/plain");
-                      if (taskId) {
-                        changeStatus(taskId, group.key as TaskStatus);
-                      }
-                    }
-                  : undefined
-              }
-            >
-              <div className="flex items-center gap-2 px-2 py-1.5">
-                <span className="text-sm font-medium">{group.label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {group.tasks.length}
-                </span>
-              </div>
-              <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-1">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetection}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setActiveTask(null)}
+        >
+          <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6">
+            {groups.map((group) => (
+              <KanbanColumn
+                key={group.key}
+                group={group}
+                droppable={canDrag}
+                dragging={activeTask !== null}
+              >
                 {group.tasks.map((task) => (
-                  <TaskCard
+                  <DraggableTaskCard
                     key={`${group.key}-${task.id}`}
+                    dragId={`${group.key}::${task.id}`}
                     task={task}
                     showProject={!scopedProjectId && groupBy !== "project"}
                     draggable={canDrag}
                     onOpen={() => openEdit(task)}
                   />
                 ))}
+              </KanbanColumn>
+            ))}
+          </div>
+          <DragOverlay
+            dropAnimation={{
+              duration: 200,
+              easing: "cubic-bezier(0.2, 0.8, 0.35, 1)",
+            }}
+          >
+            {activeTask ? (
+              <div className="rotate-2 cursor-grabbing">
+                <TaskCard
+                  task={activeTask}
+                  showProject={!scopedProjectId && groupBy !== "project"}
+                  className="shadow-lg ring-1 ring-border"
+                />
               </div>
-            </div>
-          ))}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       <TaskDialog
@@ -475,6 +526,104 @@ export function TaskBoard({
         people={people}
         defaultProjectId={scopedProjectId}
       />
+    </div>
+  );
+}
+
+function EmptyState({
+  hasAnyTask,
+  onCreate,
+}: {
+  hasAnyTask: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+      <p className="text-sm text-muted-foreground">
+        {hasAnyTask
+          ? "No tasks match the current filters."
+          : "No tasks yet. Create your first one."}
+      </p>
+      {!hasAnyTask ? (
+        <Button size="sm" variant="outline" onClick={onCreate}>
+          <Plus />
+          New task
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function KanbanColumn({
+  group,
+  droppable,
+  dragging,
+  children,
+}: {
+  group: Group;
+  droppable: boolean;
+  dragging: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: group.key,
+    disabled: !droppable,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex w-72 shrink-0 flex-col rounded-xl bg-muted/50 transition-all duration-150",
+        dragging && droppable && "ring-1 ring-border",
+        isOver && "bg-accent ring-2 ring-ring/40",
+      )}
+    >
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <span className="text-sm font-medium">{group.label}</span>
+        <span className="text-xs text-muted-foreground">
+          {group.tasks.length}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2 pt-0">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DraggableTaskCard({
+  dragId,
+  task,
+  showProject,
+  draggable,
+  onOpen,
+}: {
+  dragId: string;
+  task: TaskWithMeta;
+  showProject: boolean;
+  draggable: boolean;
+  onOpen: () => void;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: dragId,
+    data: { task },
+    disabled: !draggable,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={cn(
+        "touch-none outline-none",
+        draggable && "cursor-grab",
+        isDragging && "opacity-40",
+      )}
+      onClick={onOpen}
+    >
+      <TaskCard task={task} showProject={showProject} />
     </div>
   );
 }
@@ -568,22 +717,18 @@ function TaskRow({
 function TaskCard({
   task,
   showProject,
-  draggable,
-  onOpen,
+  className,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
-  draggable: boolean;
-  onOpen: () => void;
+  className?: string;
 }) {
   return (
     <div
-      className="flex cursor-pointer flex-col gap-2 rounded-lg border bg-background p-3 shadow-xs hover:bg-muted/30"
-      draggable={draggable}
-      onDragStart={(event) =>
-        event.dataTransfer.setData("text/plain", task.id)
-      }
-      onClick={onOpen}
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-xs select-none",
+        className,
+      )}
     >
       <span
         className={cn(

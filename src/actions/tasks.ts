@@ -104,6 +104,26 @@ export async function setTaskStatus(taskId: string, status: TaskStatus) {
   return { error: undefined };
 }
 
+export async function moveTaskToProject(
+  taskId: string,
+  projectId: string | null,
+) {
+  const session = await requireSession();
+  const task = await canAccessTask(taskId, session.user.id);
+  if (!task) return { error: "Task not found" };
+
+  if (projectId && projectId !== task.projectId) {
+    await requireMembership(projectId, session.user.id);
+  }
+
+  await db
+    .update(tasks)
+    .set({ projectId, updatedAt: new Date() })
+    .where(eq(tasks.id, taskId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
 export async function deleteTask(taskId: string) {
   const session = await requireSession();
   const task = await canAccessTask(taskId, session.user.id);
