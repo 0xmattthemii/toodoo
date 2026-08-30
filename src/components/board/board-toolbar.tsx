@@ -122,82 +122,92 @@ export function BoardToolbar() {
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-2 px-6">
-      <Tabs
-        value={config.mode}
-        onValueChange={(value) => board.setMode(value as BoardMode)}
-      >
-        <TabsList>
-          <TabsTrigger value="list">List</TabsTrigger>
-          <TabsTrigger value="kanban">Kanban</TabsTrigger>
-        </TabsList>
-      </Tabs>
+    <div className="flex flex-col gap-2 px-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <Tabs
+          value={config.mode}
+          onValueChange={(value) => board.setMode(value as BoardMode)}
+        >
+          <TabsList>
+            <TabsTrigger value="list">List</TabsTrigger>
+            <TabsTrigger value="kanban">Kanban</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-      <Select
-        value={config.groupBy}
-        onValueChange={(value) => board.setGroupBy(value as GroupBy)}
-        items={GROUP_ITEMS}
-      >
-        <SelectTrigger size="sm" aria-label="Group by">
-          <span className="text-muted-foreground">Group by</span>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {GROUP_ITEMS.filter(
-            (item) => !(scopedProjectId && item.value === "project"),
-          ).map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              {item.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        <Select
+          value={config.groupBy}
+          onValueChange={(value) => board.setGroupBy(value as GroupBy)}
+          items={GROUP_ITEMS}
+        >
+          <SelectTrigger size="sm" aria-label="Group by">
+            <span className="text-muted-foreground">Group by</span>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {GROUP_ITEMS.filter(
+              (item) => !(scopedProjectId && item.value === "project"),
+            ).map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-          <ListFilter />
-          Filter
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-44">
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {TASK_STATUSES.map((status) => (
-                <DropdownMenuItem
-                  key={status.value}
-                  onClick={() =>
-                    board.addFilter({ field: "status", value: status.value })
-                  }
-                >
-                  {status.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {assigneeOptions.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() =>
-                    board.addFilter({ field: "assignee", value: option.value })
-                  }
-                >
-                  {option.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          {!scopedProjectId ? (
+        <div className="ml-auto flex items-center gap-2">
+          {viewId && dirty ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={saveViewChanges}
+              disabled={pending}
+            >
+              <Bookmark />
+              {pending ? "Saving…" : "Save changes"}
+            </Button>
+          ) : null}
+          {!viewId && !scopedProjectId ? <ViewDialog /> : null}
+          <Button size="sm" onClick={board.openCreate}>
+            <Plus />
+            New task
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter row — always rendered so the layout doesn't shift. */}
+      <div className="flex min-h-7 flex-wrap items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
+            <ListFilter />
+            Add filter
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-44">
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Project</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
-                {projectOptions.map((option) => (
+                {TASK_STATUSES.map((status) => (
+                  <DropdownMenuItem
+                    key={status.value}
+                    onClick={() =>
+                      board.addFilter({ field: "status", value: status.value })
+                    }
+                  >
+                    {status.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {assigneeOptions.map((option) => (
                   <DropdownMenuItem
                     key={option.value}
                     onClick={() =>
-                      board.addFilter({ field: "project", value: option.value })
+                      board.addFilter({
+                        field: "assignee",
+                        value: option.value,
+                      })
                     }
                   >
                     {option.label}
@@ -205,63 +215,67 @@ export function BoardToolbar() {
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-          ) : null}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Deadline</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {DEADLINE_VALUES.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() =>
-                    board.addFilter({ field: "deadline", value: option.value })
-                  }
-                >
-                  {option.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {!scopedProjectId ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Project</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {projectOptions.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={() =>
+                        board.addFilter({
+                          field: "project",
+                          value: option.value,
+                        })
+                      }
+                    >
+                      {option.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Deadline</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {DEADLINE_VALUES.map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={() =>
+                      board.addFilter({
+                        field: "deadline",
+                        value: option.value,
+                      })
+                    }
+                  >
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-      {config.filters.map((filter) => (
-        <Badge
-          key={`${filter.field}:${filter.value}`}
-          variant="secondary"
-          className="gap-1 pr-1"
-        >
-          <span className="text-muted-foreground">
-            {FIELD_LABELS[filter.field]}:
-          </span>
-          {filterValueLabel(filter)}
-          <button
-            type="button"
-            aria-label={`Remove filter ${FIELD_LABELS[filter.field]}`}
-            onClick={() => board.removeFilter(filter)}
-            className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+        {config.filters.map((filter) => (
+          <Badge
+            key={`${filter.field}:${filter.value}`}
+            variant="secondary"
+            className="gap-1 pr-1"
           >
-            <X className="size-3" />
-          </button>
-        </Badge>
-      ))}
-
-      <div className="ml-auto flex items-center gap-2">
-        {viewId && dirty ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={saveViewChanges}
-            disabled={pending}
-          >
-            <Bookmark />
-            {pending ? "Saving…" : "Save changes"}
-          </Button>
-        ) : null}
-        {!viewId && !scopedProjectId ? <ViewDialog /> : null}
-        <Button size="sm" onClick={board.openCreate}>
-          <Plus />
-          New task
-        </Button>
+            <span className="text-muted-foreground">
+              {FIELD_LABELS[filter.field]}:
+            </span>
+            {filterValueLabel(filter)}
+            <button
+              type="button"
+              aria-label={`Remove filter ${FIELD_LABELS[filter.field]}`}
+              onClick={() => board.removeFilter(filter)}
+              className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+            >
+              <X className="size-3" />
+            </button>
+          </Badge>
+        ))}
       </div>
 
       <TaskDialog
