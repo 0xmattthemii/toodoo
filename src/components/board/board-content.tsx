@@ -16,7 +16,14 @@ import {
 } from "@dnd-kit/core";
 import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { toast } from "sonner";
 
 import { moveTaskToProject, setTaskDone } from "@/actions/tasks";
@@ -102,9 +109,6 @@ export function BoardContent({
   const [taskOverrides, setTaskOverrides] = useState<
     Record<string, Partial<TaskWithMeta>>
   >({});
-  // Tasks checked off while completed tasks are hidden: kept visible during a
-  // short exit animation (false = showing checked state, true = collapsing).
-  const [leaving, setLeaving] = useState<Record<string, boolean>>({});
   const [activeTask, setActiveTask] = useState<TaskWithMeta | null>(null);
   const justDragged = useRef(false);
   const [, startTransition] = useTransition();
@@ -127,12 +131,12 @@ export function BoardContent({
     );
     return effective.filter(
       (task) =>
-        (showDone || !task.done || leaving[task.id] !== undefined) &&
+        (showDone || !task.done) &&
         config.filters.every((filter) =>
           matchesFilter(task, filter, currentUserId),
         ),
     );
-  }, [tasks, taskOverrides, config.filters, currentUserId, showDone, leaving]);
+  }, [tasks, taskOverrides, config.filters, currentUserId, showDone]);
 
   const groups = useMemo<Group[]>(() => {
     const list = filteredTasks;
@@ -196,32 +200,11 @@ export function BoardContent({
       ...current,
       [taskId]: { ...current[taskId], done },
     }));
-    if (done && !showDone) {
-      // Let the checked state land, collapse the row, then unmount it.
-      setLeaving((current) => ({ ...current, [taskId]: false }));
-      setTimeout(() => {
-        setLeaving((current) =>
-          taskId in current ? { ...current, [taskId]: true } : current,
-        );
-      }, 350);
-      setTimeout(() => {
-        setLeaving((current) => {
-          const next = { ...current };
-          delete next[taskId];
-          return next;
-        });
-      }, 700);
-    }
     startTransition(async () => {
       const result = await setTaskDone(taskId, done);
       if (result.error) {
         toast.error(result.error);
         revertOverride(taskId);
-        setLeaving((current) => {
-          const next = { ...current };
-          delete next[taskId];
-          return next;
-        });
       }
     });
   }
@@ -312,17 +295,21 @@ export function BoardContent({
             ) : (
               <div className="flex flex-col">
                 {group.tasks.map((task) => (
-                  <CollapseOnLeave
+                  <TaskLeaveWrapper
                     key={`${group.key}-${task.id}`}
-                    collapsing={leaving[task.id] === true}
+                    task={task}
+                    showDone={showDone}
+                    onSetDone={changeDone}
                   >
-                    <TaskRow
-                      task={task}
-                      showProject={showProject}
-                      onOpen={() => openEdit(task)}
-                      onToggleDone={(done) => changeDone(task.id, done)}
-                    />
-                  </CollapseOnLeave>
+                    {(displayTask, toggleDone) => (
+                      <TaskRow
+                        task={displayTask}
+                        showProject={showProject}
+                        onOpen={() => openEdit(displayTask)}
+                        onToggleDone={toggleDone}
+                      />
+                    )}
+                  </TaskLeaveWrapper>
                 ))}
               </div>
             )}
@@ -349,19 +336,23 @@ export function BoardContent({
             dragging={activeTask !== null}
           >
             {group.tasks.map((task) => (
-              <CollapseOnLeave
+              <TaskLeaveWrapper
                 key={`${group.key}-${task.id}`}
-                collapsing={leaving[task.id] === true}
+                task={task}
+                showDone={showDone}
+                onSetDone={changeDone}
               >
-                <DraggableTaskCard
-                  dragId={`${group.key}::${task.id}`}
-                  task={task}
-                  showProject={showProject}
-                  draggable={canDrag}
-                  onOpen={() => openEdit(task)}
-                  onToggleDone={(done) => changeDone(task.id, done)}
-                />
-              </CollapseOnLeave>
+                {(displayTask, toggleDone) => (
+                  <DraggableTaskCard
+                    dragId={`${group.key}::${task.id}`}
+                    task={displayTask}
+                    showProject={showProject}
+                    draggable={canDrag}
+                    onOpen={() => openEdit(displayTask)}
+                    onToggleDone={toggleDone}
+                  />
+                )}
+              </TaskLeaveWrapper>
             ))}
           </KanbanColumn>
         ))}
@@ -467,28 +458,73 @@ function DraggableTaskCard({
 }
 
 /**
- * Smoothly collapses its row (height, spacing, opacity) when `collapsing`
- * turns on — used before unmounting a task checked off while completed
- * tasks are hidden. The bottom padding replaces the list gap so spacing
- * collapses along with the row.
+ * Runs the completion exit animation entirely inside the row: the checked
+ * state renders from local state (no board re-render), then the row height
+ * collapses via the Web Animations API, and only once it is invisible does
+ * the parent persist the change and unmount it. The bottom padding replaces
+ * the list gap so spacing collapses along with the row.
  */
-function CollapseOnLeave({
-  collapsing,
+function TaskLeaveWrapper({
+  task,
+  showDone,
+  onSetDone,
   children,
 }: {
-  collapsing: boolean;
-  children: React.ReactNode;
+  task: TaskWithMeta;
+  showDone: boolean;
+  onSetDone: (taskId: string, done: boolean) => void;
+  children: (
+    task: TaskWithMeta,
+    toggleDone: (done: boolean) => void,
+  ) => React.ReactNode;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const beatTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [localDone, setLocalDone] = useState(false);
+
+  const toggleDone = useCallback(
+    (done: boolean) => {
+      if (beatTimeout.current) {
+        clearTimeout(beatTimeout.current);
+        beatTimeout.current = null;
+      }
+      if (!done || showDone) {
+        setLocalDone(false);
+        onSetDone(task.id, done);
+        return;
+      }
+      // Show the checked state for a beat, then collapse and persist.
+      setLocalDone(true);
+      beatTimeout.current = setTimeout(() => {
+        beatTimeout.current = null;
+        const el = ref.current;
+        if (!el) {
+          onSetDone(task.id, true);
+          return;
+        }
+        const animation = el.animate(
+          [
+            { height: `${el.offsetHeight}px`, opacity: 1, transform: "none" },
+            { height: "0px", opacity: 0, transform: "translateX(-8px)" },
+          ],
+          {
+            duration: 200,
+            easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+            fill: "forwards",
+          },
+        );
+        animation.onfinish = () => onSetDone(task.id, true);
+      }, 300);
+    },
+    [showDone, onSetDone, task.id],
+  );
+
   return (
-    <div
-      className={cn(
-        "grid transition-all duration-300 ease-in-out",
-        collapsing
-          ? "grid-rows-[0fr] opacity-0 -translate-x-2"
-          : "grid-rows-[1fr] opacity-100",
-      )}
-    >
-      <div className="min-h-0 overflow-hidden pb-2">{children}</div>
+    <div ref={ref} className="overflow-hidden">
+      <div className="pb-2">
+        {/* eslint-disable-next-line react-hooks/refs -- toggleDone only touches refs when invoked as an event handler, not during render */}
+        {children(localDone ? { ...task, done: true } : task, toggleDone)}
+      </div>
     </div>
   );
 }
