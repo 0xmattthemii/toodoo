@@ -102,6 +102,9 @@ export function BoardContent({
   const [taskOverrides, setTaskOverrides] = useState<
     Record<string, Partial<TaskWithMeta>>
   >({});
+  // Tasks checked off while completed tasks are hidden: kept visible during a
+  // short exit animation (false = showing checked state, true = collapsing).
+  const [leaving, setLeaving] = useState<Record<string, boolean>>({});
   const [activeTask, setActiveTask] = useState<TaskWithMeta | null>(null);
   const justDragged = useRef(false);
   const [, startTransition] = useTransition();
@@ -124,12 +127,12 @@ export function BoardContent({
     );
     return effective.filter(
       (task) =>
-        (showDone || !task.done) &&
+        (showDone || !task.done || leaving[task.id] !== undefined) &&
         config.filters.every((filter) =>
           matchesFilter(task, filter, currentUserId),
         ),
     );
-  }, [tasks, taskOverrides, config.filters, currentUserId, showDone]);
+  }, [tasks, taskOverrides, config.filters, currentUserId, showDone, leaving]);
 
   const groups = useMemo<Group[]>(() => {
     const list = filteredTasks;
@@ -193,11 +196,32 @@ export function BoardContent({
       ...current,
       [taskId]: { ...current[taskId], done },
     }));
+    if (done && !showDone) {
+      // Let the checked state land, collapse the row, then unmount it.
+      setLeaving((current) => ({ ...current, [taskId]: false }));
+      setTimeout(() => {
+        setLeaving((current) =>
+          taskId in current ? { ...current, [taskId]: true } : current,
+        );
+      }, 350);
+      setTimeout(() => {
+        setLeaving((current) => {
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+      }, 700);
+    }
     startTransition(async () => {
       const result = await setTaskDone(taskId, done);
       if (result.error) {
         toast.error(result.error);
         revertOverride(taskId);
+        setLeaving((current) => {
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
       }
     });
   }
@@ -286,15 +310,19 @@ export function BoardContent({
                 No tasks
               </p>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col">
                 {group.tasks.map((task) => (
-                  <TaskRow
+                  <CollapseOnLeave
                     key={`${group.key}-${task.id}`}
-                    task={task}
-                    showProject={showProject}
-                    onOpen={() => openEdit(task)}
-                    onToggleDone={(done) => changeDone(task.id, done)}
-                  />
+                    collapsing={leaving[task.id] === true}
+                  >
+                    <TaskRow
+                      task={task}
+                      showProject={showProject}
+                      onOpen={() => openEdit(task)}
+                      onToggleDone={(done) => changeDone(task.id, done)}
+                    />
+                  </CollapseOnLeave>
                 ))}
               </div>
             )}
@@ -321,15 +349,19 @@ export function BoardContent({
             dragging={activeTask !== null}
           >
             {group.tasks.map((task) => (
-              <DraggableTaskCard
+              <CollapseOnLeave
                 key={`${group.key}-${task.id}`}
-                dragId={`${group.key}::${task.id}`}
-                task={task}
-                showProject={showProject}
-                draggable={canDrag}
-                onOpen={() => openEdit(task)}
-                onToggleDone={(done) => changeDone(task.id, done)}
-              />
+                collapsing={leaving[task.id] === true}
+              >
+                <DraggableTaskCard
+                  dragId={`${group.key}::${task.id}`}
+                  task={task}
+                  showProject={showProject}
+                  draggable={canDrag}
+                  onOpen={() => openEdit(task)}
+                  onToggleDone={(done) => changeDone(task.id, done)}
+                />
+              </CollapseOnLeave>
             ))}
           </KanbanColumn>
         ))}
@@ -385,7 +417,7 @@ function KanbanColumn({
           {group.tasks.length}
         </span>
       </div>
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2 pt-0">
+      <div className="flex flex-1 flex-col overflow-y-auto p-2 pt-0">
         {children}
       </div>
     </div>
@@ -434,6 +466,33 @@ function DraggableTaskCard({
   );
 }
 
+/**
+ * Smoothly collapses its row (height, spacing, opacity) when `collapsing`
+ * turns on — used before unmounting a task checked off while completed
+ * tasks are hidden. The bottom padding replaces the list gap so spacing
+ * collapses along with the row.
+ */
+function CollapseOnLeave({
+  collapsing,
+  children,
+}: {
+  collapsing: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "grid transition-all duration-300 ease-in-out",
+        collapsing
+          ? "grid-rows-[0fr] opacity-0 -translate-x-2"
+          : "grid-rows-[1fr] opacity-100",
+      )}
+    >
+      <div className="min-h-0 overflow-hidden pb-2">{children}</div>
+    </div>
+  );
+}
+
 function DoneCheckbox({
   task,
   onToggleDone,
@@ -446,7 +505,10 @@ function DoneCheckbox({
       <Checkbox
         checked={task.done}
         onCheckedChange={(checked) => onToggleDone(checked === true)}
-        className="rounded-full"
+        className={cn(
+          "rounded-full transition-transform active:scale-90",
+          task.done && "animate-in zoom-in-75 duration-300",
+        )}
         aria-label={`Mark "${task.title}" as ${task.done ? "not done" : "done"}`}
       />
     </span>
