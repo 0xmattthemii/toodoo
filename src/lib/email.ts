@@ -53,11 +53,16 @@ export async function sendEmail({
   <p style="font-size: 12px; color: #a3a3a3; margin: 32px 0 0;">If you weren't expecting this email, you can safely ignore it.</p>
 </div>`;
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: FROM,
     to,
     subject,
     html,
     text: `${heading}\n\n${body}\n\n${actionLabel}: ${actionUrl}`,
   });
+  if (error) {
+    // The SDK reports failures instead of throwing; surface them.
+    console.error(`[email] failed to send "${subject}" to ${to}:`, error);
+    throw new Error(error.message);
+  }
 }
