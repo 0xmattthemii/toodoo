@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window. The app content is remote, so no IPC is exposed to it; these permissions only apply to local webview contexts.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

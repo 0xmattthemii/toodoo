@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Toodoo",
+  "version": "0.1.0",
+  "identifier": "io.aryes.toodoo",
+  "build": {},
+  "app": {
+    "windows": [],
+    "security": {
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["toodoo"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzQjUxRjBEMkY2RTRERDgKUldUWVRXNHZEUisxODZzOVFaNHhlbGdCWGxIL1QrZldNY1Y5VEhNdGI1NDNrY1MrcHVhZWdVdHQK",
+      "endpoints": [
+        "https://github.com/0xmattthemii/toodoo/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
