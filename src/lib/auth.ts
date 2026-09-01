@@ -4,6 +4,7 @@ import { nextCookies } from "better-auth/next-js";
 
 import { db } from "@/db";
 import { account, session, user, verification } from "@/db/schema/auth";
+import { sendEmail } from "@/lib/email";
 
 export const auth = betterAuth({
   baseURL:
@@ -15,6 +16,16 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
+    sendResetPassword: async ({ user, url }) => {
+      await sendEmail({
+        to: user.email,
+        subject: "Reset your toodoo password",
+        heading: "Reset your password",
+        body: `Hi ${user.name}, click the button below to choose a new password. This link expires in one hour.`,
+        actionLabel: "Reset password",
+        actionUrl: url,
+      });
+    },
   },
   plugins: [nextCookies()],
 });

@@ -5,7 +5,8 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { projectInvitations, projectMembers, user } from "@/db/schema";
-import { requireMembership } from "@/lib/data";
+import { getProject, requireMembership } from "@/lib/data";
+import { appUrl, sendEmail } from "@/lib/email";
 import { requireSession } from "@/lib/session";
 import type { Role } from "@/lib/types";
 
@@ -27,16 +28,32 @@ export async function inviteToProject(
     .from(user)
     .where(eq(user.email, normalized));
 
+  const project = await getProject(projectId);
+  const inviter = session.user.name;
+
   if (existing) {
     const inserted = await db
       .insert(projectMembers)
       .values({ projectId, userId: existing.id, role })
       .onConflictDoNothing()
       .returning();
+    if (inserted.length === 0) {
+      return { error: "That person is already a member" };
+    }
+    try {
+      await sendEmail({
+        to: normalized,
+        subject: `${inviter} added you to ${project?.name ?? "a project"} on toodoo`,
+        heading: `You've been added to ${project?.name ?? "a project"}`,
+        body: `${inviter} added you to the project "${project?.name ?? ""}" on toodoo. You can see its tasks right away.`,
+        actionLabel: "Open the project",
+        actionUrl: appUrl(`/projects/${projectId}`),
+      });
+    } catch (error) {
+      console.error("[email] failed to send member-added email", error);
+    }
     revalidatePath("/", "layout");
-    return inserted.length === 0
-      ? { error: "That person is already a member" }
-      : { added: true as const };
+    return { added: true as const };
   }
 
   const inserted = await db
@@ -44,10 +61,23 @@ export async function inviteToProject(
     .values({ projectId, email: normalized, role, invitedBy: session.user.id })
     .onConflictDoNothing()
     .returning();
+  if (inserted.length === 0) {
+    return { error: "That email has already been invited" };
+  }
+  try {
+    await sendEmail({
+      to: normalized,
+      subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
+      heading: `${inviter} invited you to toodoo`,
+      body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Create an account with this email address and you'll join the project automatically.`,
+      actionLabel: "Sign up",
+      actionUrl: appUrl("/signup"),
+    });
+  } catch (error) {
+    console.error("[email] failed to send invitation email", error);
+  }
   revalidatePath("/", "layout");
-  return inserted.length === 0
-    ? { error: "That email has already been invited" }
-    : { invited: true as const };
+  return { invited: true as const };
 }
 
 export async function revokeInvitation(projectId: string, invitationId: string) {
