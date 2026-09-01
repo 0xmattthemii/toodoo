@@ -556,14 +556,12 @@ function DoneCheckbox({
 }
 
 function DeadlineChip({ task }: { task: TaskWithMeta }) {
-  if (!task.deadline) {
-    return <span className="w-16" aria-hidden />;
-  }
+  if (!task.deadline) return null;
   const overdue = dueBucket(task) === "overdue" && !task.done;
   return (
     <span
       className={cn(
-        "flex w-16 items-center justify-end gap-1 text-xs whitespace-nowrap",
+        "flex items-center gap-1 text-xs whitespace-nowrap",
         overdue ? "font-medium text-destructive" : "text-muted-foreground",
       )}
     >
@@ -626,7 +624,9 @@ function TaskRow({
           ) : null}
         </span>
       ) : null}
-      <DeadlineChip task={task} />
+      <span className="flex w-16 items-center justify-end">
+        <DeadlineChip task={task} />
+      </span>
       <AvatarStack people={task.assignees} />
     </div>
   );
@@ -646,32 +646,34 @@ function TaskCard({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-xs select-none",
+        "flex items-start gap-2.5 rounded-lg border bg-background p-3 shadow-xs select-none",
         className,
       )}
     >
-      <span className="flex items-start gap-2.5">
-        {onToggleDone ? (
+      {onToggleDone ? (
+        <span className="mt-0.5 flex">
           <DoneCheckbox task={task} onToggleDone={onToggleDone} />
-        ) : null}
+        </span>
+      ) : null}
+      <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span
           className={cn(
-            "min-w-0 flex-1 text-sm font-medium",
+            "text-sm font-medium",
             task.done && "text-muted-foreground line-through",
           )}
         >
           {task.title}
         </span>
-      </span>
-      <span className="flex items-center gap-2">
-        {showProject && task.projectName ? (
-          <Badge variant="outline" className="max-w-28">
-            <span className="truncate">{task.projectName}</span>
-          </Badge>
-        ) : null}
-        <DeadlineChip task={task} />
-        <span className="ml-auto">
-          <AvatarStack people={task.assignees} />
+        <span className="flex items-center gap-2">
+          {showProject && task.projectName ? (
+            <Badge variant="outline" className="max-w-28">
+              <span className="truncate">{task.projectName}</span>
+            </Badge>
+          ) : null}
+          <DeadlineChip task={task} />
+          <span className="ml-auto">
+            <AvatarStack people={task.assignees} />
+          </span>
         </span>
       </span>
     </div>
