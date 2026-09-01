@@ -22,6 +22,20 @@
       "when": 1788128236373,
       "tag": "0002_task_done_boolean",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788275711500,
+      "tag": "0003_mcp_oauth_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788276180464,
+      "tag": "0004_oauth_resource_policy_fields",
+      "breakpoints": true
     }
   ]
 }

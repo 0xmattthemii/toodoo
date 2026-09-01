@@ -447,7 +447,7 @@ function DraggableTaskCard({
       {...attributes}
       className={cn(
         "touch-none outline-none",
-        draggable && "cursor-grab",
+        draggable ? "cursor-grab" : "cursor-pointer",
         isDragging && "opacity-40",
       )}
       onClick={onOpen}

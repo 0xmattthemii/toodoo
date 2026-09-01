@@ -57,6 +57,16 @@ A simple, minimalist todo app for teams.
 
 Open [http://localhost:3000](http://localhost:3000), create an account, and start organizing.
 
+## AI agents (MCP)
+
+toodoo ships a built-in [MCP](https://modelcontextprotocol.io) server at `/api/mcp`, secured by OAuth 2.1 (dynamic client registration, PKCE, consent screen). Point any MCP client at the deployment and it can read and write projects and tasks as the authorizing user — the same permission rules as the UI apply.
+
+```bash
+claude mcp add --transport http toodoo https://your-deployment.vercel.app/api/mcp
+```
+
+The client discovers the authorization server via RFC 9728/8414 metadata, registers itself, and opens the login + consent flow in your browser. Available tools: `list_projects`, `list_project_members`, `list_tasks`, `create_project`, `create_task`, `update_task`, `delete_task`.
+
 ## Database
 
 The schema lives in [`src/db/schema`](src/db/schema) and SQL migrations in [`drizzle/`](drizzle). Everything is plain Postgres — swap `DATABASE_URL` to move providers.

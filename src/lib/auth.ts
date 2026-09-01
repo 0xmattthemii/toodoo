@@ -1,18 +1,26 @@
+import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { jwt } from "better-auth/plugins";
 
 import { db } from "@/db";
-import { account, session, user, verification } from "@/db/schema/auth";
+import * as schema from "@/db/schema";
 import { sendEmail } from "@/lib/email";
 
+export const appBaseURL =
+  process.env.BETTER_AUTH_URL ??
+  (process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000");
+
+const baseURL = appBaseURL;
+
 export const auth = betterAuth({
-  baseURL:
-    process.env.BETTER_AUTH_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined),
+  baseURL,
   database: drizzleAdapter(db, {
     provider: "pg",
-    schema: { user, session, account, verification },
+    schema,
   }),
   emailAndPassword: {
     enabled: true,
@@ -27,7 +35,21 @@ export const auth = betterAuth({
       });
     },
   },
-  plugins: [nextCookies()],
+  plugins: [
+    jwt(),
+    // OAuth 2.1 authorization server + protected-resource metadata for the
+    // MCP endpoint. AI agents register via RFC 7591 dynamic registration,
+    // send users through /login + /consent, and call /api/mcp with the
+    // issued bearer token.
+    mcp({
+      loginPage: "/login",
+      consentPage: "/consent",
+      resource: `${baseURL}/api/mcp`,
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+    }),
+    nextCookies(),
+  ],
 });
 
 export type Session = typeof auth.$Infer.Session;

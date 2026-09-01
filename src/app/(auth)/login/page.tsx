@@ -35,6 +35,13 @@ export default function LoginPage() {
       toast.error(error.message ?? "Could not sign in");
       return;
     }
+    // Continue an OAuth authorization (MCP client connecting) if the page
+    // was opened with a signed authorize query; otherwise go to the app.
+    const search = window.location.search;
+    if (new URLSearchParams(search).has("client_id")) {
+      window.location.href = `/api/auth/oauth2/authorize${search}`;
+      return;
+    }
     router.push("/");
     router.refresh();
   }
