@@ -102,7 +102,7 @@ export function MembersDialog({
 
   return (
     <Dialog>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
+      <DialogTrigger render={<Button variant="outline" />}>
         <UserPlus />
         Members
         <Badge variant="secondary">{members.length}</Badge>
