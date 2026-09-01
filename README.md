@@ -34,6 +34,8 @@ A simple, minimalist todo app for teams.
    | `DATABASE_URL` | Postgres connection string (Supabase pooled URL recommended in serverless) |
    | `BETTER_AUTH_SECRET` | Session signing secret — `openssl rand -base64 32` |
    | `BETTER_AUTH_URL` | Base URL of the app (optional on Vercel) |
+   | `RESEND_API_KEY` | [Resend](https://resend.com) key for transactional email (password reset, invites). Optional — emails are skipped and logged when unset |
+   | `EMAIL_FROM` | From address for outgoing email (defaults to Resend's onboarding sender) |
 
    For local development you can run a throwaway Postgres:
 
