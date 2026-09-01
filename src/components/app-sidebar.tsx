@@ -29,7 +29,7 @@ export function AppSidebar({
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-muted/30">
-      <div className="flex h-14 items-center justify-center px-4">
+      <div className="flex h-14 shrink-0 items-center justify-center border-b px-4">
         <span className="text-lg font-bold tracking-tight">toodoo</span>
       </div>
 

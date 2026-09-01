@@ -270,7 +270,7 @@ export function BoardContent({
             : "No tasks yet. Create your first one."}
         </p>
         {tasks.length === 0 ? (
-          <Button size="sm" variant="outline" onClick={board.openCreate}>
+          <Button variant="outline" onClick={board.openCreate}>
             <Plus />
             New task
           </Button>

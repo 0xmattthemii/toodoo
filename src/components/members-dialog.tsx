@@ -174,7 +174,7 @@ export function MembersDialog({
                   }
                   items={ROLE_ITEMS}
                 >
-                  <SelectTrigger size="sm" className="w-24">
+                  <SelectTrigger className="w-24">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
