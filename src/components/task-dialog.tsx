@@ -1,6 +1,6 @@
 "use client";
 
-import { format } from "date-fns";
+import { addDays, format, startOfToday } from "date-fns";
 import { CalendarIcon, Trash2, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -66,6 +66,7 @@ export function TaskDialog({
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
   const [deadline, setDeadline] = useState<Date | undefined>(undefined);
+  const [deadlineOpen, setDeadlineOpen] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
   const [deleting, startDeleteTransition] = useTransition();
@@ -81,6 +82,7 @@ export function TaskDialog({
         task ? (task.projectId ?? NO_PROJECT) : (defaultProjectId ?? NO_PROJECT),
       );
       setDeadline(task?.deadline ? new Date(task.deadline) : undefined);
+      setDeadlineOpen(false);
       setAssigneeIds(task?.assignees.map((person) => person.id) ?? []);
     }
   }
@@ -100,6 +102,11 @@ export function TaskDialog({
         ? [...current, personId]
         : current.filter((id) => id !== personId),
     );
+  }
+
+  function pickDeadline(date: Date | undefined) {
+    setDeadline(date);
+    setDeadlineOpen(false);
   }
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -191,7 +198,7 @@ export function TaskDialog({
             <div className="grid gap-2">
               <Label>Deadline</Label>
               <div className="flex items-center gap-1">
-                <Popover>
+                <Popover open={deadlineOpen} onOpenChange={setDeadlineOpen}>
                   <PopoverTrigger
                     render={
                       <Button
@@ -209,10 +216,36 @@ export function TaskDialog({
                     )}
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
+                    <div className="flex gap-1 border-b p-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => pickDeadline(startOfToday())}
+                      >
+                        Today
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => pickDeadline(addDays(startOfToday(), 1))}
+                      >
+                        Tomorrow
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => pickDeadline(addDays(startOfToday(), 7))}
+                      >
+                        Next week
+                      </Button>
+                    </div>
                     <Calendar
                       mode="single"
                       selected={deadline}
-                      onSelect={setDeadline}
+                      onSelect={pickDeadline}
                       fixedWeeks
                     />
                   </PopoverContent>
@@ -269,7 +302,6 @@ export function TaskDialog({
                       onCheckedChange={(checked) =>
                         toggleAssignee(person.id, checked === true)
                       }
-                      closeOnClick={false}
                     >
                       <span className="flex items-center gap-2">
                         <UserAvatar person={person} className="size-5" />

@@ -257,7 +257,7 @@ export function BoardContent({
 
   const showProject = !scopedProjectId && config.groupBy !== "project";
 
-  if (filteredTasks.length === 0 && config.mode === "list") {
+  if (filteredTasks.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-sm text-muted-foreground">
