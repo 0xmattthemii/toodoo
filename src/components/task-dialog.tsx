@@ -220,7 +220,6 @@ export function TaskDialog({
                       <Button
                         type="button"
                         variant="outline"
-                        size="xs"
                         onClick={() => pickDeadline(startOfToday())}
                       >
                         Today
@@ -228,7 +227,6 @@ export function TaskDialog({
                       <Button
                         type="button"
                         variant="outline"
-                        size="xs"
                         onClick={() => pickDeadline(addDays(startOfToday(), 1))}
                       >
                         Tomorrow
@@ -236,7 +234,6 @@ export function TaskDialog({
                       <Button
                         type="button"
                         variant="outline"
-                        size="xs"
                         onClick={() => pickDeadline(addDays(startOfToday(), 7))}
                       >
                         Next week
