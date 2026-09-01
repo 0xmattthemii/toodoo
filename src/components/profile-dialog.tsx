@@ -5,11 +5,10 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { LoadingButton } from "@/components/loading-button";
+import { UserAvatar } from "@/components/user-avatar";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,7 +21,7 @@ export function ProfileDialog({
   open,
   onOpenChange,
 }: {
-  user: { name: string; email: string };
+  user: { name: string; email: string; image?: string | null };
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -72,60 +71,86 @@ export function ProfileDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Profile</DialogTitle>
-          <DialogDescription>{user.email}</DialogDescription>
-        </DialogHeader>
+        <DialogTitle className="sr-only">Profile</DialogTitle>
 
-        <form onSubmit={onSaveName} className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="profile-name">Name</Label>
+        <div className="flex items-center gap-4">
+          <UserAvatar
+            person={{ name: user.name, image: user.image ?? null }}
+            className="size-14"
+            textClassName="text-lg font-medium"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold">{user.name}</p>
+            <p className="truncate text-sm text-muted-foreground">
+              {user.email}
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={onSaveName} className="mt-2 grid gap-2">
+          <Label htmlFor="profile-name">Name</Label>
+          <div className="flex gap-2">
             <Input
               id="profile-name"
               name="name"
               defaultValue={user.name}
               autoComplete="name"
               required
+              className="flex-1"
             />
-          </div>
-          <div className="flex justify-end">
-            <LoadingButton type="submit" loading={savingName}>
-              Save name
+            <LoadingButton
+              type="submit"
+              variant="outline"
+              loading={savingName}
+            >
+              Save
             </LoadingButton>
           </div>
         </form>
 
-        <Separator />
+        <Separator className="my-2" />
 
         <form
           key={passwordFormKey}
           onSubmit={onChangePassword}
           className="grid gap-4"
         >
-          <div className="grid gap-2">
-            <Label htmlFor="profile-current-password">Current password</Label>
-            <Input
-              id="profile-current-password"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
+          <div className="grid gap-1">
+            <p className="text-sm font-medium">Change password</p>
+            <p className="text-xs text-muted-foreground">
+              You&apos;ll stay signed in here; other devices are signed out.
+            </p>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="profile-new-password">New password</Label>
-            <Input
-              id="profile-new-password"
-              name="newPassword"
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              required
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="profile-current-password">Current</Label>
+              <Input
+                id="profile-current-password"
+                name="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="profile-new-password">New</Label>
+              <Input
+                id="profile-new-password"
+                name="newPassword"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+            </div>
           </div>
           <div className="flex justify-end">
-            <LoadingButton type="submit" loading={savingPassword}>
-              Change password
+            <LoadingButton
+              type="submit"
+              variant="outline"
+              loading={savingPassword}
+            >
+              Update password
             </LoadingButton>
           </div>
         </form>

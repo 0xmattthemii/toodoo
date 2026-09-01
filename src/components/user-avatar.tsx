@@ -13,16 +13,18 @@ function initials(name: string) {
 export function UserAvatar({
   person,
   className,
+  textClassName = "text-[10px]",
 }: {
   person: { name: string; image: string | null };
   className?: string;
+  textClassName?: string;
 }) {
   return (
     <Avatar className={cn("size-6", className)}>
       {person.image ? (
         <AvatarImage src={person.image} alt={person.name} />
       ) : null}
-      <AvatarFallback className="text-[10px]">
+      <AvatarFallback className={textClassName}>
         {initials(person.name) || "?"}
       </AvatarFallback>
     </Avatar>
