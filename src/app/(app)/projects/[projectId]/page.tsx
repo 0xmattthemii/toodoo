@@ -18,6 +18,7 @@ import {
   getProject,
   getProjectMembers,
   getProjectTasks,
+  getUserProjects,
 } from "@/lib/data";
 import { requireSession } from "@/lib/session";
 
@@ -119,10 +120,11 @@ async function ProjectTasksContent({
   const membership = await getMembership(projectId, userId);
   if (!membership) notFound();
 
-  const [project, tasks, members] = await Promise.all([
+  const [project, tasks, members, allProjects] = await Promise.all([
     getProject(projectId),
     getProjectTasks(projectId),
     getProjectMembers(projectId),
+    getUserProjects(userId),
   ]);
   if (!project) notFound();
 
@@ -140,6 +142,7 @@ async function ProjectTasksContent({
         },
       ]}
       people={members}
+      dialogProjects={allProjects}
     />
   );
 }

@@ -24,7 +24,18 @@ import { Textarea } from "@/components/ui/textarea";
 
 export function ProjectDialog() {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+
+  function setOpen(next: boolean) {
+    setOpenState(next);
+    if (!next) {
+      // Drop the focus ring the browser paints on the trigger after the
+      // dialog returns focus to it.
+      requestAnimationFrame(() => {
+        (document.activeElement as HTMLElement | null)?.blur?.();
+      });
+    }
+  }
   const [icon, setIcon] = useState<string | null>(null);
   const [color, setColor] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -62,10 +73,15 @@ export function ProjectDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-xs" aria-label="New project" />
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="New project"
+            className="text-muted-foreground hover:text-foreground"
+          />
         }
       >
-        <Plus className="size-4" />
+        <Plus />
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
