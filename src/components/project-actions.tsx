@@ -91,7 +91,7 @@ export function ProjectActions({
           render={
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               aria-label="Project settings"
             />
           }

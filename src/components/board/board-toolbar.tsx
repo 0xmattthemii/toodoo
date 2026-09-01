@@ -132,7 +132,7 @@ export function BoardToolbar() {
           onValueChange={(value) => board.setGroupBy(value as GroupBy)}
           items={GROUP_ITEMS}
         >
-          <SelectTrigger size="sm" aria-label="Group by">
+          <SelectTrigger aria-label="Group by">
             <span className="text-muted-foreground">Group by</span>
             <SelectValue />
           </SelectTrigger>
@@ -148,7 +148,7 @@ export function BoardToolbar() {
         </Select>
 
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
             <ListFilter />
             Add filter
           </DropdownMenuTrigger>
@@ -216,7 +216,6 @@ export function BoardToolbar() {
           {viewId && dirty ? (
             <LoadingButton
               variant="outline"
-              size="sm"
               onClick={saveViewChanges}
               loading={pending}
             >
@@ -225,7 +224,7 @@ export function BoardToolbar() {
             </LoadingButton>
           ) : null}
           {!viewId && !scopedProjectId ? <ViewDialog /> : null}
-          <Button size="sm" onClick={board.openCreate}>
+          <Button onClick={board.openCreate}>
             <Plus />
             New task
           </Button>
@@ -256,7 +255,6 @@ export function BoardToolbar() {
         ))}
         <Button
           variant="ghost"
-          size="sm"
           aria-pressed={showDone}
           className="ml-auto text-muted-foreground"
           onClick={() => board.setShowDone(!showDone)}

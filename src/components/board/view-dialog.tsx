@@ -96,7 +96,7 @@ export function ViewDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!view ? (
-        <DialogTrigger render={<Button variant="outline" size="sm" />}>
+        <DialogTrigger render={<Button variant="outline" />}>
           <Bookmark />
           Save view
         </DialogTrigger>

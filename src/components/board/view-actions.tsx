@@ -34,7 +34,7 @@ export function ViewActions({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="ghost" size="icon-sm" aria-label="View settings" />
+            <Button variant="ghost" size="icon" aria-label="View settings" />
           }
         >
           <MoreHorizontal />
