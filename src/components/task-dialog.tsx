@@ -302,6 +302,7 @@ export function TaskDialog({
                       onCheckedChange={(checked) =>
                         toggleAssignee(person.id, checked === true)
                       }
+                      closeOnClick
                     >
                       <span className="flex items-center gap-2">
                         <UserAvatar person={person} className="size-5" />

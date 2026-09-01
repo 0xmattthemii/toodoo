@@ -92,10 +92,14 @@ export function BoardContent({
   tasks,
   projects,
   people,
+  dialogProjects,
 }: {
   tasks: TaskWithMeta[];
   projects: ProjectSummary[];
   people: Person[];
+  /** Projects offered in the task dialog; defaults to `projects`. On project
+   * pages this carries the user's full list so a task can be moved elsewhere. */
+  dialogProjects?: ProjectSummary[];
 }) {
   const board = useBoard();
   const { config, currentUserId, scopedProjectId, registerOptions, showDone } =
@@ -103,8 +107,8 @@ export function BoardContent({
 
   // Feed dropdown options (filter values, task dialog selects) to the toolbar.
   useEffect(() => {
-    registerOptions({ projects, people });
-  }, [registerOptions, projects, people]);
+    registerOptions({ projects: dialogProjects ?? projects, people });
+  }, [registerOptions, projects, dialogProjects, people]);
 
   const [taskOverrides, setTaskOverrides] = useState<
     Record<string, Partial<TaskWithMeta>>
