@@ -29,11 +29,8 @@ export function AppSidebar({
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-muted/30">
-      <div className="flex h-14 items-center gap-2 px-4">
-        <span className="flex size-6 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
-          t.
-        </span>
-        <span className="font-semibold tracking-tight">toodoo</span>
+      <div className="flex h-14 items-center justify-center px-4">
+        <span className="text-lg font-bold tracking-tight">toodoo</span>
       </div>
 
       <nav className="flex flex-col gap-1 px-2 py-2">

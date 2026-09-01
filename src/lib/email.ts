@@ -46,7 +46,7 @@ export async function sendEmail({
 
   const html = `
 <div style="font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #171717;">
-  <p style="font-weight: 700; font-size: 16px; margin: 0 0 24px;">t. toodoo</p>
+  <p style="font-weight: 700; font-size: 18px; margin: 0 0 24px;">toodoo</p>
   <h1 style="font-size: 20px; font-weight: 600; margin: 0 0 12px;">${heading}</h1>
   <p style="font-size: 14px; line-height: 1.6; color: #525252; margin: 0 0 24px;">${body}</p>
   <a href="${actionUrl}" style="display: inline-block; background: #171717; color: #fafafa; font-size: 14px; font-weight: 500; padding: 10px 18px; border-radius: 10px; text-decoration: none;">${actionLabel}</a>
