@@ -64,7 +64,7 @@ function ConsentForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
       <CardHeader>
         <CardTitle>Authorize access</CardTitle>
         <CardDescription>
