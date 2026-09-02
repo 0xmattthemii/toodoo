@@ -29,6 +29,14 @@ export const auth = betterAuth({
     provider: "pg",
     schema,
   }),
+  // OAuth callback failures that happen before the state is parsed (an
+  // expired or already-used state, i.e. a stale/duplicate callback) have no
+  // errorCallbackURL to return to. Send them to the login page, where
+  // useOAuthErrorToast explains and offers a retry, instead of Better Auth's
+  // bare /api/auth/error page.
+  onAPIError: {
+    errorURL: `${baseURL}/login`,
+  },
   emailAndPassword: {
     enabled: true,
     sendResetPassword: async ({ user, url }) => {
