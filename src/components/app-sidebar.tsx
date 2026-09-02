@@ -20,10 +20,13 @@ export function SidebarListSkeleton() {
 
 export function AppSidebar({
   user,
+  googleEnabled,
   projects,
   views,
 }: {
   user: { name: string; email: string; image: string | null };
+  /** Whether "Continue with Google" is configured on this deployment. */
+  googleEnabled: boolean;
   projects: React.ReactNode;
   views: React.ReactNode;
 }) {
@@ -64,7 +67,7 @@ export function AppSidebar({
       </div>
 
       <div className="border-t p-2">
-        <NavUser user={user} />
+        <NavUser user={user} googleEnabled={googleEnabled} />
       </div>
     </aside>
   );
