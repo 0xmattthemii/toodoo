@@ -1,6 +1,9 @@
 # toodoo
 
-A simple, minimalist todo app for teams.
+A simple, minimalist todo app for teams. Self-host it on your own infrastructure, or [deploy it to Vercel](#deploy-your-own) in a couple of clicks.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2F0xmattthemii%2Ftoodoo&project-name=toodoo&repository-name=toodoo&env=DATABASE_URL,BETTER_AUTH_SECRET&envDescription=Postgres%20connection%20string%20%2B%20session%20signing%20secret%20%28openssl%20rand%20-base64%2032%29&envLink=https%3A%2F%2Fgithub.com%2F0xmattthemii%2Ftoodoo%23getting-started)
 
 - **Tasks** with deadlines, status, and one or more assignees
 - **Projects** to group tasks, with member roles (admin / member) and a custom icon + color
@@ -65,6 +68,12 @@ deep-link support. See [desktop/README.md](desktop/README.md).
    ```
 
 Open [http://localhost:3000](http://localhost:3000), create an account, and start organizing.
+
+## Deploy your own
+
+The fastest path is the **Deploy with Vercel** button above: it forks this repo, creates a Vercel project connected to it, and prompts for the two required env vars (`DATABASE_URL`, `BETTER_AUTH_SECRET`). Any Postgres works — [Neon](https://neon.tech), [Supabase](https://supabase.com), or your own. After the first deploy, run the migrations against your database (`pnpm drizzle-kit migrate` with `DATABASE_URL` set) and add the optional env vars below as needed (Google sign-in, domain locking, email).
+
+toodoo is a standard Next.js app, so it also runs anywhere Node.js does — `pnpm build && pnpm start` behind any reverse proxy.
 
 ## Google sign-in
 
