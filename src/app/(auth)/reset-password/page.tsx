@@ -51,7 +51,7 @@ function ResetPasswordForm() {
 
   if (!token) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
         <CardHeader>
           <CardTitle>Invalid reset link</CardTitle>
           <CardDescription>
@@ -70,7 +70,7 @@ function ResetPasswordForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
       <CardHeader>
         <CardTitle>Choose a new password</CardTitle>
         <CardDescription>

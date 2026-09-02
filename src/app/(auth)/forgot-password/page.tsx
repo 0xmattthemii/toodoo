@@ -38,7 +38,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
       <CardHeader>
         <CardTitle>Reset your password</CardTitle>
         <CardDescription>
