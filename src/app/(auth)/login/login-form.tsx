@@ -1,10 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { GoogleLogo } from "@/components/google-logo";
 import { LoadingButton } from "@/components/loading-button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Card,
   CardContent,
@@ -21,14 +23,22 @@ import {
   AuthLink,
   AuthSeparator,
   GoogleButton,
+  LINK_PARAM,
   oauthContinuationURL,
   useOAuthErrorToast,
+  withoutFlowParams,
 } from "../social-auth";
 
 export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
   const router = useRouter();
+  const params = useSearchParams();
   const [loading, setLoading] = useState(false);
   useOAuthErrorToast();
+
+  // A Google sign-in matched this email's password account, but the account
+  // hasn't verified its email so Better Auth won't merge them on its own.
+  // The password sign-in below proves ownership; then Google gets attached.
+  const linkGoogle = googleEnabled && params.get(LINK_PARAM) === "google";
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,14 +48,34 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
       email: String(form.get("email")),
       password: String(form.get("password")),
     });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       toast.error(error.message ?? "Could not sign in");
       return;
     }
     // Continue an OAuth authorization (MCP client connecting) if the page
     // was opened with a signed authorize query; otherwise go to the app.
-    const continuation = oauthContinuationURL(window.location.search);
+    const search = window.location.search;
+    const continuation = oauthContinuationURL(search);
+
+    if (linkGoogle) {
+      // Signed in — now connect Google to this account. The browser goes to
+      // Google and comes back to callbackURL with the accounts merged; from
+      // then on either method signs in directly.
+      const query = withoutFlowParams(search).toString();
+      const { error: linkError } = await authClient.linkSocial({
+        provider: "google",
+        callbackURL: continuation ?? "/",
+        errorCallbackURL: `/login${query ? `?${query}` : ""}`,
+      });
+      if (!linkError) return; // navigating to Google
+      // Still signed in with the password; just not linked.
+      toast.error(
+        linkError.message ??
+          "Could not connect Google. You're signed in with your password.",
+      );
+    }
+
     if (continuation) {
       window.location.href = continuation;
       return;
@@ -61,7 +91,17 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
         <CardDescription>Sign in to continue to toodoo</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
-        {googleEnabled ? (
+        {linkGoogle ? (
+          <Alert>
+            <GoogleLogo />
+            <AlertTitle>Connect Google to your account</AlertTitle>
+            <AlertDescription>
+              This email already signs in with a password. Enter it once below
+              and we&apos;ll connect Google, so next time either works.{" "}
+              <AuthLink href="/login">Sign in without connecting</AuthLink>
+            </AlertDescription>
+          </Alert>
+        ) : googleEnabled ? (
           <>
             <GoogleButton />
             <AuthSeparator />
@@ -98,7 +138,7 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
             />
           </div>
           <LoadingButton type="submit" className="w-full" loading={loading}>
-            Sign in
+            {linkGoogle ? "Sign in and connect Google" : "Sign in"}
           </LoadingButton>
         </form>
       </CardContent>

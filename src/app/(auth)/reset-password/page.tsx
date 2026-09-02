@@ -45,6 +45,15 @@ function ResetPasswordForm() {
       toast.error(error.message ?? "This reset link is invalid or expired");
       return;
     }
+    // Someone signed in with Google who just added a password lands back in
+    // the app; a signed-out reset goes to the login page.
+    const { data: session } = await authClient.getSession();
+    if (session) {
+      toast.success("Password set — you can now sign in with it too");
+      router.push("/");
+      router.refresh();
+      return;
+    }
     toast.success("Password updated — sign in with your new password");
     router.push("/login");
   }

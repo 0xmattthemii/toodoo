@@ -17,8 +17,10 @@ import { authClient } from "@/lib/auth-client";
 
 export function NavUser({
   user,
+  googleEnabled,
 }: {
   user: { name: string; email: string; image: string | null };
+  googleEnabled: boolean;
 }) {
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -57,6 +59,7 @@ export function NavUser({
       </DropdownMenu>
       <ProfileDialog
         user={user}
+        googleEnabled={googleEnabled}
         open={profileOpen}
         onOpenChange={setProfileOpen}
       />
