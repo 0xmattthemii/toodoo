@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { deleteView } from "@/actions/views";
 import { ViewDialog } from "@/components/board/view-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -20,10 +21,11 @@ export function ViewActions({
   view: { id: string; name: string; icon: string | null; color: string | null };
 }) {
   const [editOpen, setEditOpen] = useState(false);
-  const [, startTransition] = useTransition();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   function onDelete() {
-    if (!window.confirm(`Delete the view "${view.name}"?`)) return;
+    // The action redirects on success, which unmounts this component.
     startTransition(async () => {
       await deleteView(view.id);
     });
@@ -51,13 +53,29 @@ export function ViewActions({
           <DropdownMenuItem
             variant="destructive"
             className="whitespace-nowrap"
-            onClick={onDelete}
+            onClick={() => setDeleteOpen(true)}
           >
             <Trash2 />
             Delete view
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete view?"
+        description={
+          <>
+            The view{" "}
+            <span className="font-medium text-foreground">{view.name}</span>{" "}
+            will be removed. Tasks are not affected.
+          </>
+        }
+        confirmLabel="Delete view"
+        destructive
+        loading={pending}
+        onConfirm={onDelete}
+      />
       <ViewDialog view={view} open={editOpen} onOpenChange={setEditOpen} />
     </>
   );

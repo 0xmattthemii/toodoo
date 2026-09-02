@@ -13,6 +13,29 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    // Never use native browser modals; use <ConfirmDialog> / <Dialog> instead.
+    rules: {
+      "no-alert": "error",
+      "no-restricted-globals": [
+        "error",
+        ...["alert", "confirm", "prompt"].map((name) => ({
+          name,
+          message: `Use the in-app dialog components instead of ${name}().`,
+        })),
+      ],
+      "no-restricted-properties": [
+        "error",
+        ...["alert", "confirm", "prompt"].flatMap((property) =>
+          ["window", "globalThis"].map((object) => ({
+            object,
+            property,
+            message: `Use the in-app dialog components instead of ${object}.${property}().`,
+          })),
+        ),
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
