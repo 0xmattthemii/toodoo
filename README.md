@@ -89,7 +89,13 @@ Google authentication is optional — without credentials the app runs with emai
    e.g. `http://localhost:3000/api/auth/callback/google` for local dev and `https://todo.acme.com/api/auth/callback/google` for production. Add the matching origins (`http://localhost:3000`, `https://todo.acme.com`) as authorized JavaScript origins.
 3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-Accounts are matched by email: someone who signed up with a password can also sign in with Google once their email address is verified (a verification email is sent on sign-up and on sign-in while unverified), and someone who started with Google can add a password later via "Forgot password". Linking a Google sign-in to an existing password account therefore requires a working mailer — set `RESEND_API_KEY` if you use both auth methods.
+Accounts are matched by email, and the two methods merge into one account:
+
+- **Password first, then Google** — a Google sign-in with the same address joins the existing account. If that account hasn't verified its email yet (a verification email is sent on sign-up; skipped when no mailer is set), the login page asks for the password once, then connects Google. From then on either method works.
+- **Google first, then password** — open **Profile → Sign-in methods → Set a password** (or use "Forgot password" on the login page) to add one.
+- **Connect Google later** — Profile → Sign-in methods → Connect.
+
+Email verification is never required to use the app; it only lets the Google merge skip the password step. Setting a password from a Google-only account needs a working mailer (`RESEND_API_KEY`).
 
 ## Locking sign-ups to your domain
 
