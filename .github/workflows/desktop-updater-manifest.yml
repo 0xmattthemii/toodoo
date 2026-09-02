@@ -1,0 +1,31 @@
+name: Desktop updater manifest
+
+# Installed apps poll releases/download/updater/latest.json (a floating
+# `updater` release) rather than releases/latest, so publishing any
+# non-desktop release in this repo can never break auto-update. When a
+# desktop release is published, copy its latest.json onto the floating tag.
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-manifest:
+    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Copy latest.json to the floating updater release
+        run: |
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json
+          if ! gh release view updater --repo "$REPO" >/dev/null 2>&1; then
+            gh release create updater --repo "$REPO" \
+              --title "Desktop updater manifest" \
+              --notes "Rolling pointer to the latest desktop release; used by the in-app updater. Do not delete." \
+              --prerelease --latest=false
+          fi
+          gh release upload updater latest.json --clobber --repo "$REPO"

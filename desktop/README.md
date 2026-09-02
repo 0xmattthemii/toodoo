@@ -42,10 +42,14 @@ git push --follow-tags
 ```
 
 The tag triggers `.github/workflows/desktop.yml`, which builds a macOS
-universal `.dmg` and Windows `.msi`/`.exe`, signs the updater artifacts, and
-creates a **draft** GitHub release including `latest.json`. Review and publish
-the release — publishing is what makes it live at
-`releases/latest/download/latest.json`, where running apps check for updates.
+universal `.dmg` and a Windows NSIS installer, signs the updater artifacts,
+and creates a **draft** GitHub release including `latest.json`. Review and
+publish the release — publishing triggers
+`.github/workflows/desktop-updater-manifest.yml`, which copies `latest.json`
+onto the floating `updater` release that running apps poll
+(`releases/download/updater/latest.json`). The floating tag exists so that
+publishing unrelated (e.g. web) releases in this repo can never break
+auto-update.
 
 ### Auto-update
 
@@ -60,10 +64,12 @@ have users reinstall manually).
 
 ## Not yet done
 
-- **OS code signing/notarization** — macOS builds are ad-hoc signed (users
-  must right-click → Open the first time); Windows builds will trigger
-  SmartScreen until signed. The workflow has the secret names stubbed in
-  comments.
+- **OS code signing/notarization** — macOS builds are ad-hoc signed, and
+  Gatekeeper reports downloaded ad-hoc apps as "damaged" on Apple Silicon;
+  until Developer ID signing + notarization is set up, testers must run
+  `xattr -d com.apple.quarantine /Applications/Toodoo.app` after installing.
+  Windows builds will trigger SmartScreen until signed. The workflow has the
+  secret names stubbed in comments.
 - **Native extras** — tray / menu-bar quick add, global shortcut,
   notifications, dock badge count.
 - **Offline screen** — the shell shows a webview error page without a

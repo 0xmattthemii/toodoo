@@ -3,16 +3,9 @@
   "productName": "Toodoo",
   "version": "0.1.0",
   "identifier": "io.aryes.toodoo",
-  "build": {},
-  "app": {
-    "windows": [],
-    "security": {
-      "capabilities": ["default"]
-    }
-  },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg", "nsis"],
     "category": "Productivity",
     "createUpdaterArtifacts": true,
     "macOS": {
@@ -35,7 +28,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzQjUxRjBEMkY2RTRERDgKUldUWVRXNHZEUisxODZzOVFaNHhlbGdCWGxIL1QrZldNY1Y5VEhNdGI1NDNrY1MrcHVhZWdVdHQK",
       "endpoints": [
-        "https://github.com/0xmattthemii/toodoo/releases/latest/download/latest.json"
+        "https://github.com/0xmattthemii/toodoo/releases/download/updater/latest.json"
       ]
     }
   }
