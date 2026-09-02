@@ -1,11 +1,14 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { GoogleLogo } from "@/components/google-logo";
 import { LoadingButton } from "@/components/loading-button";
 import { UserAvatar } from "@/components/user-avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -14,14 +17,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { authClient } from "@/lib/auth-client";
+
 
 export function ProfileDialog({
   user,
+  googleEnabled,
   open,
   onOpenChange,
 }: {
   user: { name: string; email: string; image?: string | null };
+  googleEnabled: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -29,6 +36,33 @@ export function ProfileDialog({
   const [savingName, startNameTransition] = useTransition();
   const [savingPassword, startPasswordTransition] = useTransition();
   const [passwordFormKey, setPasswordFormKey] = useState(0);
+
+  // Sign-in methods attached to this account. Loaded on open so the dialog
+  // reflects a Google link or password set since the page was rendered.
+  const [providers, setProviders] = useState<string[] | null>(null);
+  const [linkingGoogle, setLinkingGoogle] = useState(false);
+  const [sendingSetPassword, startSetPasswordTransition] = useTransition();
+  const [setPasswordSent, setSetPasswordSent] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    authClient.listAccounts().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error || !data) {
+        toast.error("Could not load your sign-in methods");
+        setProviders([]);
+        return;
+      }
+      setProviders(data.map((account) => account.providerId));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const hasPassword = providers?.includes("credential") ?? false;
+  const hasGoogle = providers?.includes("google") ?? false;
 
   function onSaveName(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,6 +79,39 @@ export function ProfileDialog({
       }
       toast.success("Name updated");
       router.refresh();
+    });
+  }
+
+  async function onConnectGoogle() {
+    setLinkingGoogle(true);
+    // Better Auth links the Google identity to the signed-in user and only
+    // accepts a Google account with this same email; errors land back on the
+    // login page's toast handler.
+    const { error } = await authClient.linkSocial({
+      provider: "google",
+      callbackURL: "/",
+      errorCallbackURL: "/login",
+    });
+    if (error) {
+      toast.error(error.message ?? "Could not connect Google");
+      setLinkingGoogle(false);
+    }
+  }
+
+  function onSetPassword() {
+    // Accounts created with Google have no password. Setting one goes through
+    // the reset-link flow, which creates the password credential on the
+    // account — no current password needed.
+    startSetPasswordTransition(async () => {
+      const { error } = await authClient.requestPasswordReset({
+        email: user.email,
+        redirectTo: "/reset-password",
+      });
+      if (error) {
+        toast.error(error.message ?? "Could not send the email");
+        return;
+      }
+      setSetPasswordSent(true);
     });
   }
 
@@ -110,50 +177,122 @@ export function ProfileDialog({
 
         <Separator className="my-2" />
 
-        <form
-          key={passwordFormKey}
-          onSubmit={onChangePassword}
-          className="grid gap-4"
-        >
+        <div className="grid gap-3">
           <div className="grid gap-1">
-            <p className="text-sm font-medium">Change password</p>
+            <p className="text-sm font-medium">Sign-in methods</p>
             <p className="text-xs text-muted-foreground">
-              You&apos;ll stay signed in here; other devices are signed out.
+              Connect both and use whichever is handy.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="profile-current-password">Current</Label>
-              <Input
-                id="profile-current-password"
-                name="currentPassword"
-                type="password"
-                autoComplete="current-password"
-                required
-              />
+
+          {providers === null ? (
+            <div className="grid gap-2" aria-hidden>
+              {googleEnabled ? <Skeleton className="h-9 rounded-lg" /> : null}
+              <Skeleton className="h-9 rounded-lg" />
             </div>
+          ) : (
             <div className="grid gap-2">
-              <Label htmlFor="profile-new-password">New</Label>
-              <Input
-                id="profile-new-password"
-                name="newPassword"
-                type="password"
-                autoComplete="new-password"
-                minLength={8}
-                required
-              />
+              {googleEnabled ? (
+                <div className="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm">
+                  <GoogleLogo />
+                  <span className="flex-1">Google</span>
+                  {hasGoogle ? (
+                    <Badge variant="secondary">
+                      <Check />
+                      Connected
+                    </Badge>
+                  ) : (
+                    <LoadingButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="-mr-2 h-7"
+                      loading={linkingGoogle}
+                      onClick={onConnectGoogle}
+                    >
+                      Connect
+                    </LoadingButton>
+                  )}
+                </div>
+              ) : null}
+              <div className="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm">
+                <span className="flex-1">Password</span>
+                {hasPassword ? (
+                  <Badge variant="secondary">
+                    <Check />
+                    Set
+                  </Badge>
+                ) : setPasswordSent ? (
+                  <span className="text-xs text-muted-foreground">
+                    Check your email for a link
+                  </span>
+                ) : (
+                  <LoadingButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="-mr-2 h-7"
+                    loading={sendingSetPassword}
+                    onClick={onSetPassword}
+                  >
+                    Set a password
+                  </LoadingButton>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="flex justify-end">
-            <LoadingButton
-              type="submit"
-              variant="outline"
-              loading={savingPassword}
+          )}
+        </div>
+
+        {hasPassword ? (
+          <>
+            <Separator className="my-2" />
+            <form
+              key={passwordFormKey}
+              onSubmit={onChangePassword}
+              className="grid gap-4"
             >
-              Update password
-            </LoadingButton>
-          </div>
-        </form>
+              <div className="grid gap-1">
+                <p className="text-sm font-medium">Change password</p>
+                <p className="text-xs text-muted-foreground">
+                  You&apos;ll stay signed in here; other devices are signed
+                  out.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="profile-current-password">Current</Label>
+                  <Input
+                    id="profile-current-password"
+                    name="currentPassword"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="profile-new-password">New</Label>
+                  <Input
+                    id="profile-new-password"
+                    name="newPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <LoadingButton
+                  type="submit"
+                  variant="outline"
+                  loading={savingPassword}
+                >
+                  Update password
+                </LoadingButton>
+              </div>
+            </form>
+          </>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

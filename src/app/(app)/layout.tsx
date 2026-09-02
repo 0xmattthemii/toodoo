@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { AppSidebar, SidebarListSkeleton } from "@/components/app-sidebar";
 import { SidebarProjects } from "@/components/sidebar-projects";
 import { SidebarViews } from "@/components/sidebar-views";
+import { googleAuthEnabled } from "@/lib/auth-flags";
 import { acceptPendingInvitations } from "@/lib/data";
 import { requireSession } from "@/lib/session";
 
@@ -27,6 +28,7 @@ export default async function AppLayout({
           email: session.user.email,
           image: session.user.image ?? null,
         }}
+        googleEnabled={googleAuthEnabled()}
         projects={
           <Suspense fallback={<SidebarListSkeleton />}>
             <SidebarProjects userId={session.user.id} />

@@ -48,7 +48,15 @@ export function SignupForm({
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message ?? "Could not create account");
+      // Better Auth's default wording ("use another email") sends people
+      // who already have an account — often one created via Google — the
+      // wrong way. Point them at sign-in, where Google and password both work.
+      toast.error(
+        error.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL" ||
+          error.code === "USER_ALREADY_EXISTS"
+          ? "An account with this email already exists. Sign in instead."
+          : (error.message ?? "Could not create account"),
+      );
       return;
     }
     // Continue an OAuth authorization (MCP client connecting) if the page
