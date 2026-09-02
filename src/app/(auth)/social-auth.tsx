@@ -125,7 +125,16 @@ export function AuthLink({
   );
 }
 
+const RETRY_GOOGLE =
+  "That Google sign-in expired or was already used. Please try again.";
+
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  // The OAuth state is single-use and short-lived (a few minutes): a slow
+  // Google login, a Back navigation, or a re-opened callback hits these.
+  state_mismatch: RETRY_GOOGLE,
+  state_not_found: RETRY_GOOGLE,
+  state_invalid: RETRY_GOOGLE,
+  invalid_code: RETRY_GOOGLE,
   email_not_verified: "Verify your email address before signing in.",
   access_denied: "Google sign-in was cancelled.",
   unable_to_get_user_info:
