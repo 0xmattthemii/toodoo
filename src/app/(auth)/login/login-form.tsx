@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +21,7 @@ import {
   AuthLink,
   AuthSeparator,
   GoogleButton,
+  oauthContinuationURL,
   useOAuthErrorToast,
 } from "../social-auth";
 
@@ -45,9 +45,9 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
     }
     // Continue an OAuth authorization (MCP client connecting) if the page
     // was opened with a signed authorize query; otherwise go to the app.
-    const search = window.location.search;
-    if (new URLSearchParams(search).has("client_id")) {
-      window.location.href = `/api/auth/oauth2/authorize${search}`;
+    const continuation = oauthContinuationURL(window.location.search);
+    if (continuation) {
+      window.location.href = continuation;
       return;
     }
     router.push("/");
@@ -82,12 +82,12 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
           <div className="grid gap-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="password">Password</Label>
-              <Link
+              <AuthLink
                 href="/forgot-password"
                 className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
               >
                 Forgot password?
-              </Link>
+              </AuthLink>
             </div>
             <Input
               id="password"

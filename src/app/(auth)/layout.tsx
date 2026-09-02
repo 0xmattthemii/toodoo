@@ -4,7 +4,7 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center gap-8 overflow-hidden bg-muted/40 p-4">
+    <div className="relative flex min-h-dvh flex-col items-center justify-center gap-8 bg-muted/40 p-4">
       {/* Dotted backdrop, faded out toward the edges. */}
       <div
         aria-hidden
@@ -13,9 +13,6 @@ export default function AuthLayout({
       <div className="relative flex w-full max-w-sm flex-col items-center gap-8">
         <div className="text-3xl font-bold tracking-tight">toodoo</div>
         {children}
-        <p className="text-center text-xs text-balance text-muted-foreground">
-          Simple, minimalist todos for teams.
-        </p>
       </div>
     </div>
   );

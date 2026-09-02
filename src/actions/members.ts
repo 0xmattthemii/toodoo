@@ -5,10 +5,12 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { projectInvitations, projectMembers, user } from "@/db/schema";
+import { allowedEmailDomains, isEmailDomainAllowed } from "@/lib/auth-flags";
 import { getProject, requireMembership } from "@/lib/data";
 import { appUrl, sendEmail } from "@/lib/email";
 import { requireSession } from "@/lib/session";
 import type { Role } from "@/lib/types";
+import { formatEmailDomains } from "@/lib/utils";
 
 export async function inviteToProject(
   projectId: string,
@@ -21,6 +23,14 @@ export async function inviteToProject(
   const normalized = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
     return { error: "Enter a valid email address" };
+  }
+  // A domain-locked instance can't let this invite be redeemed — the sign-up
+  // would be rejected — so surface that to the admin instead of sending an
+  // invitation that dead-ends.
+  if (!isEmailDomainAllowed(normalized)) {
+    return {
+      error: `This instance only allows ${formatEmailDomains(allowedEmailDomains())} accounts`,
+    };
   }
 
   const [existing] = await db

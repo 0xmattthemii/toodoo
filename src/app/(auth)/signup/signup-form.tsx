@@ -16,11 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
+import { formatEmailDomains } from "@/lib/utils";
 
 import {
   AuthLink,
   AuthSeparator,
   GoogleButton,
+  oauthContinuationURL,
   useOAuthErrorToast,
 } from "../social-auth";
 
@@ -51,9 +53,9 @@ export function SignupForm({
     }
     // Continue an OAuth authorization (MCP client connecting) if the page
     // was opened with a signed authorize query; otherwise go to the app.
-    const search = window.location.search;
-    if (new URLSearchParams(search).has("client_id")) {
-      window.location.href = `/api/auth/oauth2/authorize${search}`;
+    const continuation = oauthContinuationURL(window.location.search);
+    if (continuation) {
+      window.location.href = continuation;
       return;
     }
     router.push("/");
@@ -66,9 +68,7 @@ export function SignupForm({
         <CardTitle className="text-xl">Create your account</CardTitle>
         <CardDescription>
           {allowedDomains.length
-            ? `Sign-ups are limited to ${allowedDomains
-                .map((domain) => `@${domain}`)
-                .join(", ")} emails`
+            ? `Sign-ups are limited to ${formatEmailDomains(allowedDomains)} emails`
             : "Start organizing your work"}
         </CardDescription>
       </CardHeader>

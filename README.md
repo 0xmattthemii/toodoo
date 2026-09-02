@@ -74,13 +74,13 @@ Google authentication is optional — without credentials the app runs with emai
    e.g. `http://localhost:3000/api/auth/callback/google` for local dev and `https://todo.acme.com/api/auth/callback/google` for production. Add the matching origins (`http://localhost:3000`, `https://todo.acme.com`) as authorized JavaScript origins.
 3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-Accounts are matched by email: someone who signed up with a password can also sign in with Google once their email address is verified (a verification email is sent on sign-up), and someone who started with Google can add a password later via "Forgot password".
+Accounts are matched by email: someone who signed up with a password can also sign in with Google once their email address is verified (a verification email is sent on sign-up and on sign-in while unverified), and someone who started with Google can add a password later via "Forgot password". Linking a Google sign-in to an existing password account therefore requires a working mailer — set `RESEND_API_KEY` if you use both auth methods.
 
 ## Locking sign-ups to your domain
 
 Deploying toodoo for your team or company? Two independent locks are available:
 
-- `AUTH_ALLOWED_EMAIL_DOMAINS=acme.com,acme.dev` — only these email domains can **create accounts**, enforced server-side for both email/password and Google sign-ups. Existing accounts keep working if you add this later.
+- `AUTH_ALLOWED_EMAIL_DOMAINS=acme.com,acme.dev` — only these email domains can create accounts, sign in with Google, or link a Google identity, enforced server-side for every auth method. Project invitations to other domains are rejected up front. Pre-existing password accounts outside the list keep working if you add the lock later (their email/password sign-in is not re-validated).
 - `GOOGLE_HOSTED_DOMAIN=acme.com` — additionally requires Google sign-ins to come from that Google Workspace domain, verified against the Google id token (not just the account-picker hint). Set it to `*` to allow any Workspace account while blocking personal Gmail.
 
 ## AI agents (MCP)

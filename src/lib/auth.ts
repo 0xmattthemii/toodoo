@@ -1,14 +1,18 @@
 import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { jwt } from "better-auth/plugins";
 
 import { db } from "@/db";
 import * as schema from "@/db/schema";
-import { allowedEmailDomains, googleAuthEnabled } from "@/lib/auth-flags";
+import {
+  allowedEmailDomains,
+  googleAuthEnabled,
+  isEmailDomainAllowed,
+} from "@/lib/auth-flags";
 import { sendEmail } from "@/lib/email";
+import { formatEmailDomains } from "@/lib/utils";
 
 export const appBaseURL =
   process.env.BETTER_AUTH_URL ??
@@ -40,8 +44,10 @@ export const auth = betterAuth({
   // Verifying email/password accounts lets Better Auth safely link a Google
   // sign-in with the same address to the existing account (it refuses to link
   // into unverified local accounts to prevent pre-registration takeovers).
+  // sendOnSignIn covers accounts created before verification existed.
   emailVerification: {
     sendOnSignUp: true,
+    sendOnSignIn: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
       await sendEmail({
@@ -54,7 +60,7 @@ export const auth = betterAuth({
       });
     },
   },
-  socialProviders: googleAuthEnabled
+  socialProviders: googleAuthEnabled()
     ? {
         google: {
           clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -66,25 +72,26 @@ export const auth = betterAuth({
         },
       }
     : undefined,
-  databaseHooks: allowedEmailDomains.length
-    ? {
-        user: {
-          create: {
-            before: async (user) => {
-              const domain = user.email.split("@").at(-1)?.toLowerCase();
-              if (!domain || !allowedEmailDomains.includes(domain)) {
-                throw new APIError("FORBIDDEN", {
-                  code: "signup_domain_restricted",
-                  message: `Sign-ups on this toodoo instance are limited to ${allowedEmailDomains
-                    .map((d) => `@${d}`)
-                    .join(", ")} email addresses`,
-                });
-              }
-            },
-          },
-        },
+  user: {
+    // Domain lock. validateUserInfo runs on user creation (every method),
+    // OAuth sign-in of existing users, and account linking — so an
+    // out-of-domain Google identity can neither register, sign in, nor be
+    // linked. Plain email/password sign-in is never re-validated, so
+    // pre-existing password accounts keep working if the lock is added later.
+    // Must RETURN the error (a throw is flattened to a generic
+    // "validation_failed" and the message is lost).
+    validateUserInfo: async ({ user }) => {
+      if (allowedEmailDomains().length === 0) return;
+      // Some linking paths can omit the email; fail closed — without an
+      // address we cannot prove the identity is in-domain.
+      if (!user.email || !isEmailDomainAllowed(user.email)) {
+        return {
+          error: "signup_domain_restricted",
+          errorDescription: `Accounts on this toodoo instance are limited to ${formatEmailDomains(allowedEmailDomains())} email addresses`,
+        };
       }
-    : undefined,
+    },
+  },
   plugins: [
     jwt(),
     // OAuth 2.1 authorization server + protected-resource metadata for the

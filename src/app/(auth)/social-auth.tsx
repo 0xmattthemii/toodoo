@@ -1,12 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { LoadingButton } from "@/components/loading-button";
+import { Separator } from "@/components/ui/separator";
 import { authClient } from "@/lib/auth-client";
+
+/**
+ * When the page was opened with a signed authorize query (an MCP client
+ * connecting via OAuth), the flow must resume at the authorize endpoint after
+ * authentication. Returns that destination, or null for a plain sign-in.
+ * Single source of truth for the sentinel param and the endpoint path.
+ */
+export function oauthContinuationURL(search: string): string | null {
+  const params = new URLSearchParams(search);
+  if (!params.has("client_id")) return null;
+  // The user authenticates on this page, so an OIDC re-authentication request
+  // (prompt=login / prompt=create / max_age) is satisfied by the time the
+  // query is replayed. Leaving those in makes the authorize endpoint bounce
+  // straight back to /login forever. Mirrors the oauth-provider plugin's own
+  // resume hook, which strips both after a fresh sign-in.
+  const prompts = (params.get("prompt") ?? "")
+    .split(" ")
+    .filter((p) => p && p !== "login" && p !== "create");
+  if (prompts.length) params.set("prompt", prompts.join(" "));
+  else params.delete("prompt");
+  params.delete("max_age");
+  return `/api/auth/oauth2/authorize?${params.toString()}`;
+}
 
 function GoogleLogo() {
   return (
@@ -33,9 +57,8 @@ function GoogleLogo() {
 
 /**
  * "Continue with Google" button. Preserves an in-flight MCP OAuth
- * authorization: when the page was opened with a signed authorize query
- * (client_id & co), the flow resumes at the authorize endpoint after Google
- * redirects back.
+ * authorization via {@link oauthContinuationURL}; errors return to the page
+ * the button was clicked on, where useOAuthErrorToast surfaces them.
  */
 export function GoogleButton() {
   const [loading, setLoading] = useState(false);
@@ -43,13 +66,10 @@ export function GoogleButton() {
   async function onClick() {
     setLoading(true);
     const search = window.location.search;
-    const callbackURL = new URLSearchParams(search).has("client_id")
-      ? `/api/auth/oauth2/authorize${search}`
-      : "/";
     const { error } = await authClient.signIn.social({
       provider: "google",
-      callbackURL,
-      errorCallbackURL: `/login${search}`,
+      callbackURL: oauthContinuationURL(search) ?? "/",
+      errorCallbackURL: `${window.location.pathname}${search}`,
     });
     // On success the browser navigates away; only errors reach this point.
     if (error) {
@@ -76,9 +96,9 @@ export function GoogleButton() {
 export function AuthSeparator() {
   return (
     <div className="flex items-center gap-3">
-      <div className="h-px flex-1 bg-border" />
+      <Separator className="flex-1" />
       <span className="text-xs text-muted-foreground">or</span>
-      <div className="h-px flex-1 bg-border" />
+      <Separator className="flex-1" />
     </div>
   );
 }
@@ -86,6 +106,7 @@ export function AuthSeparator() {
 /**
  * Link between auth pages that carries the current query string along, so an
  * in-flight MCP OAuth authorization survives switching between login/signup.
+ * The query is baked into the href, so new-tab and copy-link work too.
  */
 export function AuthLink({
   href,
@@ -96,18 +117,10 @@ export function AuthLink({
   className?: string;
   children: React.ReactNode;
 }) {
-  const router = useRouter();
+  const params = useSearchParams();
+  const query = params.toString();
   return (
-    <Link
-      href={href}
-      className={className}
-      onClick={(event) => {
-        const search = window.location.search;
-        if (!search) return;
-        event.preventDefault();
-        router.push(`${href}${search}`);
-      }}
-    >
+    <Link href={query ? `${href}?${query}` : href} className={className}>
       {children}
     </Link>
   );
@@ -118,12 +131,15 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
     "This email already has a password account. Sign in with your password — once your email is verified you can also use Google.",
   email_not_verified: "Verify your email address before signing in.",
   access_denied: "Google sign-in was cancelled.",
+  unable_to_get_user_info:
+    "Google sign-in was rejected. If this instance is limited to a Google Workspace domain, pick your work account.",
 };
 
 /**
- * Surfaces OAuth callback failures: Better Auth redirects back to the login
- * page with ?error=<code>[&error_description=...]. Shows a friendly toast and
- * strips the error params (keeping any MCP authorize query intact).
+ * Surfaces OAuth callback failures: Better Auth redirects back to the
+ * originating page with ?error=<code>[&error_description=...]. Shows a
+ * friendly toast and strips the error params (keeping any MCP authorize
+ * query intact).
  */
 export function useOAuthErrorToast() {
   useEffect(() => {
@@ -131,8 +147,12 @@ export function useOAuthErrorToast() {
     const error = params.get("error");
     if (!error) return;
     const description = params.get("error_description");
+    // Own-property lookup: `error` comes from the URL, so a crafted value
+    // like __proto__ must not resolve through the prototype chain.
     toast.error(
-      OAUTH_ERROR_MESSAGES[error] ??
+      (Object.hasOwn(OAUTH_ERROR_MESSAGES, error)
+        ? OAUTH_ERROR_MESSAGES[error]
+        : undefined) ??
         description ??
         `Sign-in failed (${error.replaceAll("_", " ")})`,
     );
