@@ -40,8 +40,12 @@ export function ConfirmDialog({
   return (
     <AlertDialog
       open={open}
-      onOpenChange={(next) => {
-        if (loading && !next) return;
+      onOpenChange={(next, eventDetails) => {
+        // Refuse Escape / outside dismissal while the action is in flight.
+        if (loading && !next) {
+          eventDetails.cancel();
+          return;
+        }
         onOpenChange(next);
       }}
     >

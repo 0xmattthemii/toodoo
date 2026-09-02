@@ -109,16 +109,13 @@ function AlertDialogDescription({
   return (
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn(
+        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        className
+      )}
       {...props}
     />
   )
-}
-
-function AlertDialogAction({
-  ...props
-}: React.ComponentProps<typeof Button>) {
-  return <Button data-slot="alert-dialog-action" {...props} />
 }
 
 function AlertDialogCancel({
@@ -135,7 +132,6 @@ function AlertDialogCancel({
 
 export {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,

@@ -16,7 +16,6 @@ const eslintConfig = defineConfig([
   {
     // Never use native browser modals; use <ConfirmDialog> / <Dialog> instead.
     rules: {
-      "no-alert": "error",
       "no-restricted-globals": [
         "error",
         ...["alert", "confirm", "prompt"].map((name) => ({

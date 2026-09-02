@@ -1,7 +1,9 @@
 "use client";
 
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
 import { deleteView } from "@/actions/views";
 import { ViewDialog } from "@/components/board/view-dialog";
@@ -25,9 +27,14 @@ export function ViewActions({
   const [pending, startTransition] = useTransition();
 
   function onDelete() {
-    // The action redirects on success, which unmounts this component.
     startTransition(async () => {
-      await deleteView(view.id);
+      try {
+        // Redirects on success, which unmounts this component.
+        await deleteView(view.id);
+      } catch (error) {
+        unstable_rethrow(error);
+        toast.error("Couldn't delete the view. Please try again.");
+      }
     });
   }
 

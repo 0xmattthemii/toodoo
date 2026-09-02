@@ -1,6 +1,7 @@
 "use client";
 
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -44,6 +45,7 @@ export function ProjectActions({
   const [icon, setIcon] = useState<string | null>(project.icon);
   const [color, setColor] = useState<string | null>(project.color);
   const [pending, startTransition] = useTransition();
+  const [deleting, startDeleteTransition] = useTransition();
 
   // Re-seed appearance from the project each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(false);
@@ -74,9 +76,14 @@ export function ProjectActions({
   }
 
   function onDelete() {
-    // The action redirects on success, which unmounts this component.
-    startTransition(async () => {
-      await deleteProject(project.id);
+    startDeleteTransition(async () => {
+      try {
+        // Redirects on success, which unmounts this component.
+        await deleteProject(project.id);
+      } catch (error) {
+        unstable_rethrow(error);
+        toast.error("Couldn't delete the project. Please try again.");
+      }
     });
   }
 
@@ -129,7 +136,7 @@ export function ProjectActions({
         }
         confirmLabel="Delete project"
         destructive
-        loading={pending}
+        loading={deleting}
         onConfirm={onDelete}
       />
 
