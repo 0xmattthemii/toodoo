@@ -15,6 +15,12 @@ A simple, minimalist todo app for teams.
 - [Drizzle ORM](https://orm.drizzle.team) + plain Postgres — works with [Supabase](https://supabase.com) or any other Postgres, no vendor lock-in
 - [shadcn/ui](https://ui.shadcn.com) + Tailwind CSS
 
+## Desktop app
+
+A [Tauri 2](https://tauri.app) shell for Windows and macOS lives in
+[`desktop/`](desktop/) — it wraps the deployed web app in a native window with
+deep-link support. See [desktop/README.md](desktop/README.md).
+
 ## Getting started
 
 1. Install dependencies:
