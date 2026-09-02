@@ -1,10 +1,12 @@
 "use client";
 
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { deleteProject, updateProject } from "@/actions/projects";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { IconColorPicker } from "@/components/icon-color-picker";
 import { LoadingButton } from "@/components/loading-button";
 import { Button } from "@/components/ui/button";
@@ -39,9 +41,11 @@ export function ProjectActions({
   };
 }) {
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [icon, setIcon] = useState<string | null>(project.icon);
   const [color, setColor] = useState<string | null>(project.color);
   const [pending, startTransition] = useTransition();
+  const [deleting, startDeleteTransition] = useTransition();
 
   // Re-seed appearance from the project each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(false);
@@ -72,15 +76,14 @@ export function ProjectActions({
   }
 
   function onDelete() {
-    if (
-      !window.confirm(
-        `Delete "${project.name}" and all of its tasks? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
-    startTransition(async () => {
-      await deleteProject(project.id);
+    startDeleteTransition(async () => {
+      try {
+        // Redirects on success, which unmounts this component.
+        await deleteProject(project.id);
+      } catch (error) {
+        unstable_rethrow(error);
+        toast.error("Couldn't delete the project. Please try again.");
+      }
     });
   }
 
@@ -110,13 +113,32 @@ export function ProjectActions({
           <DropdownMenuItem
             variant="destructive"
             className="whitespace-nowrap"
-            onClick={onDelete}
+            onClick={() => setDeleteOpen(true)}
           >
             <Trash2 />
             Delete project
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete project?"
+        description={
+          <>
+            <span className="font-medium text-foreground">
+              {project.name}
+            </span>{" "}
+            and all of its tasks will be permanently deleted. This cannot be
+            undone.
+          </>
+        }
+        confirmLabel="Delete project"
+        destructive
+        loading={deleting}
+        onConfirm={onDelete}
+      />
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">
