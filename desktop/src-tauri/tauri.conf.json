@@ -2,7 +2,13 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Toodoo",
   "version": "0.1.0",
-  "identifier": "io.aryes.toodoo",
+  "identifier": "io.github.0xmattthemii.toodoo",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg", "nsis"],

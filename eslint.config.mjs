@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Rust build output of the desktop app (contains generated JS).
+    "desktop/**/target/**",
   ]),
   {
     // Never use native browser modals; use <ConfirmDialog> / <Dialog> instead.
