@@ -6,9 +6,9 @@ A simple, minimalist todo app for teams. Self-host it on your own infrastructure
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2F0xmattthemii%2Ftoodoo&project-name=toodoo&repository-name=toodoo&env=DATABASE_URL,BETTER_AUTH_SECRET&envDescription=Postgres%20connection%20string%20%2B%20session%20signing%20secret%20%28openssl%20rand%20-base64%2032%29&envLink=https%3A%2F%2Fgithub.com%2F0xmattthemii%2Ftoodoo%23getting-started)
 
 - **Tasks** with deadlines, status, and one or more assignees
-- **Projects** to group tasks, with member roles (admin / member) and a custom icon + color
+- **Projects** to group tasks, with member roles (admin / member) and a custom icon + color — create one straight from the task dialog
 - **Invitations** by email — existing users are added instantly, new users join automatically when they sign up
-- **Flexible boards** — list or kanban, an explicit "Group by" control, and stackable filters (field → condition) shown as removable badges; drag & drop across kanban columns
+- **Flexible boards** — list or kanban, an explicit "Group by" control, and stackable filters (field → condition) shown as removable badges; drag & drop tasks across kanban columns or onto a project in the sidebar
 - **Saved views** — save any grouping/filter combination as a named view with its own icon and color; views live in the sidebar and can be edited, updated, or deleted
 
 ## Stack
@@ -64,17 +64,17 @@ All configuration is environment variables. Nothing needs to be edited in the co
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | Enables "Continue with Google" — see [Google sign-in](#google-sign-in) |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | no | Comma-separated email domains allowed to create accounts — see [Locking sign-ups](#locking-sign-ups-to-your-domain) |
 | `GOOGLE_HOSTED_DOMAIN` | no | Restrict Google sign-in to one Google Workspace domain |
-| `DESKTOP_RELEASES_REPO` | no | GitHub `owner/repo` whose releases the `/desktop` page offers. Defaults to this repo — only forks that ship their own desktop build set it |
+| `DESKTOP_RELEASES_REPO` | no | GitHub `owner/repo` whose releases the in-app install dialog offers. Defaults to this repo — only forks that ship their own desktop build set it |
 
 ## Desktop app
 
-toodoo has a native desktop app for macOS and Windows — a [Tauri 2](https://tauri.app) shell around the web app, in [`desktop/`](desktop/). One build works with **any** toodoo deployment: on first launch the app asks which server to connect to. If you self-host, there is nothing to build, sign, or configure — every deployment automatically serves an install page at `/desktop` that links to the latest release.
+toodoo has a native desktop app for macOS and Windows — a [Tauri 2](https://tauri.app) shell around the web app, in [`desktop/`](desktop/). One build works with **any** toodoo deployment: on first launch the app asks which server to connect to. If you self-host, there is nothing to build, sign, or configure — every deployment automatically offers the latest release from inside the app.
 
 ### Installing the desktop app (for your users)
 
 Once toodoo is deployed at, say, `https://todo.acme.com`:
 
-1. Open **`https://todo.acme.com/desktop`** — the install page. It's also linked from the profile menu (**Download desktop app**) in the bottom-left of the app.
+1. In toodoo, open the profile menu in the bottom-left corner and choose **Download desktop app**. The dialog has a tab per platform — **macOS** and **Windows** — with the installer and the steps for each.
 2. Download the installer for your platform (macOS `.dmg` or Windows `-setup.exe`) and install it. The builds are **not code-signed yet**, so the OS warns once:
    - **macOS** — drag Toodoo to Applications, then run this once in Terminal, otherwise Gatekeeper reports the app as "damaged":
 
@@ -83,13 +83,13 @@ Once toodoo is deployed at, say, `https://todo.acme.com`:
      ```
 
    - **Windows** — on the SmartScreen prompt, choose **More info → Run anyway**.
-3. Open Toodoo. On the connect screen, enter your toodoo address (`https://todo.acme.com`) and click **Connect** — or, back on the `/desktop` page, click **Open in Toodoo desktop**, which opens the app with the address filled in. Sign in as usual.
+3. Open Toodoo. On the connect screen, enter your toodoo address (`https://todo.acme.com`) and click **Connect** — or, back in the install dialog, click **Open in Toodoo desktop**, which opens the app with the address filled in. Sign in as usual.
 
 The app remembers the server, keeps you signed in like the browser does, and updates itself from the GitHub releases it was built from. To connect to a different server later: **profile menu → Switch server…** (on macOS also **Toodoo → Switch Server…** in the menu bar).
 
 ### Where the installers come from
 
-The `/desktop` page links to the latest `desktop-v*` release of the GitHub repository in `DESKTOP_RELEASES_REPO` — by default this one, whose builds work with every deployment. If you fork toodoo and ship your own desktop build, set the variable to your repository; [desktop/README.md](desktop/README.md#shipping-your-own-build) walks through what to change.
+The install dialog links to the latest `desktop-v*` release of the GitHub repository in `DESKTOP_RELEASES_REPO` — by default this one, whose builds work with every deployment. If you fork toodoo and ship your own desktop build, set the variable to your repository; [desktop/README.md](desktop/README.md#shipping-your-own-build) walks through what to change.
 
 ## Google sign-in
 

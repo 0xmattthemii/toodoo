@@ -1,19 +1,6 @@
 "use client";
 
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  pointerWithin,
-  rectIntersection,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type CollisionDetection,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
+import { DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
 import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
 import {
@@ -28,6 +15,10 @@ import { toast } from "sonner";
 
 import { moveTaskToProject, setTaskDone } from "@/actions/tasks";
 import { useBoard } from "@/components/board/board-context";
+import {
+  sidebarProjectFromDropId,
+  useTaskDnd,
+} from "@/components/task-dnd";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,12 +71,6 @@ function matchesFilter(
   }
 }
 
-// Prefer the column under the pointer; fall back to overlap for edge drops.
-const collisionDetection: CollisionDetection = (args) => {
-  const withPointer = pointerWithin(args);
-  return withPointer.length > 0 ? withPointer : rectIntersection(args);
-};
-
 type Group = { key: string; label: string; tasks: TaskWithMeta[] };
 
 export function BoardContent({
@@ -105,22 +90,19 @@ export function BoardContent({
   const { config, currentUserId, scopedProjectId, registerOptions, showDone } =
     board;
 
+  const projectOptions = dialogProjects ?? projects;
+
   // Feed dropdown options (filter values, task dialog selects) to the toolbar.
   useEffect(() => {
-    registerOptions({ projects: dialogProjects ?? projects, people });
-  }, [registerOptions, projects, dialogProjects, people]);
+    registerOptions({ projects: projectOptions, people });
+  }, [registerOptions, projectOptions, people]);
 
   const [taskOverrides, setTaskOverrides] = useState<
     Record<string, Partial<TaskWithMeta>>
   >({});
-  const [activeTask, setActiveTask] = useState<TaskWithMeta | null>(null);
+  const { activeTask, registerDropHandler } = useTaskDnd();
   const justDragged = useRef(false);
   const [, startTransition] = useTransition();
-
-  const sensors = useSensors(
-    // A small distance threshold keeps plain clicks opening the edit dialog.
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
 
   // Reset optimistic overrides once fresh server data arrives.
   const [prevTasks, setPrevTasks] = useState(tasks);
@@ -191,13 +173,13 @@ export function BoardContent({
     }
   }, [filteredTasks, config.groupBy, projects, people, scopedProjectId]);
 
-  function revertOverride(taskId: string) {
+  const revertOverride = useCallback((taskId: string) => {
     setTaskOverrides((current) => {
       const next = { ...current };
       delete next[taskId];
       return next;
     });
-  }
+  }, []);
 
   function changeDone(taskId: string, done: boolean) {
     setTaskOverrides((current) => ({
@@ -213,51 +195,64 @@ export function BoardContent({
     });
   }
 
-  function moveProject(taskId: string, projectId: string | null) {
-    const projectName = projectId
-      ? (projects.find((project) => project.id === projectId)?.name ?? null)
-      : null;
-    setTaskOverrides((current) => ({
-      ...current,
-      [taskId]: { ...current[taskId], projectId, projectName },
-    }));
-    startTransition(async () => {
-      const result = await moveTaskToProject(taskId, projectId);
-      if (result.error) {
-        toast.error(result.error);
-        revertOverride(taskId);
-      }
-    });
-  }
+  const moveProject = useCallback(
+    (taskId: string, projectId: string | null) => {
+      const projectName = projectId
+        ? (projectOptions.find((project) => project.id === projectId)?.name ??
+          null)
+        : null;
+      setTaskOverrides((current) => ({
+        ...current,
+        [taskId]: { ...current[taskId], projectId, projectName },
+      }));
+      startTransition(async () => {
+        const result = await moveTaskToProject(taskId, projectId);
+        if (result.error) {
+          toast.error(result.error);
+          revertOverride(taskId);
+        }
+      });
+    },
+    [projectOptions, revertOverride, startTransition],
+  );
 
   function openEdit(task: TaskWithMeta) {
     if (justDragged.current) return;
     board.openEdit(task);
   }
 
-  // Drops persist a real move only when grouping by project.
-  const canDrag = config.mode === "kanban" && config.groupBy === "project";
+  // Tasks can always be dragged onto a project in the sidebar; kanban columns
+  // only take drops when they *are* the projects.
+  const canDropOnColumn = config.groupBy === "project";
 
-  function onDragStart(event: DragStartEvent) {
-    setActiveTask((event.active.data.current?.task as TaskWithMeta) ?? null);
-  }
+  const onDrop = useCallback(
+    (dropId: string | null, task: TaskWithMeta) => {
+      // Suppress the click that the ending drag would otherwise deliver.
+      justDragged.current = true;
+      setTimeout(() => {
+        justDragged.current = false;
+      }, 100);
+      if (!dropId) return;
 
-  function onDragEnd(event: DragEndEvent) {
-    const task = activeTask;
-    setActiveTask(null);
-    justDragged.current = true;
-    setTimeout(() => {
-      justDragged.current = false;
-    }, 100);
+      const sidebarProjectId = sidebarProjectFromDropId(dropId);
+      if (sidebarProjectId !== null) {
+        if (sidebarProjectId !== task.projectId) {
+          moveProject(task.id, sidebarProjectId);
+        }
+        return;
+      }
+      if (config.groupBy === "project") {
+        const projectId = dropId === "none" ? null : dropId;
+        if (projectId !== task.projectId) moveProject(task.id, projectId);
+      }
+    },
+    [config.groupBy, moveProject],
+  );
 
-    const overKey = event.over?.id;
-    if (!task || typeof overKey !== "string") return;
-
-    if (config.groupBy === "project") {
-      const projectId = overKey === "none" ? null : overKey;
-      if (projectId !== task.projectId) moveProject(task.id, projectId);
-    }
-  }
+  useEffect(() => {
+    registerDropHandler(onDrop);
+    return () => registerDropHandler(null);
+  }, [registerDropHandler, onDrop]);
 
   const showProject = !scopedProjectId && config.groupBy !== "project";
 
@@ -278,6 +273,25 @@ export function BoardContent({
       </div>
     );
   }
+
+  const dragOverlay = (
+    <DragOverlay
+      dropAnimation={{
+        duration: 200,
+        easing: "cubic-bezier(0.2, 0.8, 0.35, 1)",
+      }}
+    >
+      {activeTask ? (
+        <div className="rotate-2 cursor-grabbing">
+          <TaskCard
+            task={activeTask}
+            showProject={showProject}
+            className="shadow-lg ring-1 ring-border"
+          />
+        </div>
+      ) : null}
+    </DragOverlay>
+  );
 
   if (config.mode === "list") {
     return (
@@ -306,12 +320,17 @@ export function BoardContent({
                     onSetDone={changeDone}
                   >
                     {(displayTask, toggleDone) => (
-                      <TaskRow
+                      <DraggableTask
+                        dragId={`${group.key}::${task.id}`}
                         task={displayTask}
-                        showProject={showProject}
                         onOpen={() => openEdit(displayTask)}
-                        onToggleDone={toggleDone}
-                      />
+                      >
+                        <TaskRow
+                          task={displayTask}
+                          showProject={showProject}
+                          onToggleDone={toggleDone}
+                        />
+                      </DraggableTask>
                     )}
                   </TaskLeaveWrapper>
                 ))}
@@ -319,24 +338,19 @@ export function BoardContent({
             )}
           </section>
         ))}
+        {dragOverlay}
       </div>
     );
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetection}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragCancel={() => setActiveTask(null)}
-    >
+    <>
       <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6 pt-4">
         {groups.map((group) => (
           <KanbanColumn
             key={group.key}
             group={group}
-            droppable={canDrag}
+            droppable={canDropOnColumn}
             dragging={activeTask !== null}
           >
             {group.tasks.map((task) => (
@@ -347,37 +361,25 @@ export function BoardContent({
                 onSetDone={changeDone}
               >
                 {(displayTask, toggleDone) => (
-                  <DraggableTaskCard
+                  <DraggableTask
                     dragId={`${group.key}::${task.id}`}
                     task={displayTask}
-                    showProject={showProject}
-                    draggable={canDrag}
                     onOpen={() => openEdit(displayTask)}
-                    onToggleDone={toggleDone}
-                  />
+                  >
+                    <TaskCard
+                      task={displayTask}
+                      showProject={showProject}
+                      onToggleDone={toggleDone}
+                    />
+                  </DraggableTask>
                 )}
               </TaskLeaveWrapper>
             ))}
           </KanbanColumn>
         ))}
       </div>
-      <DragOverlay
-        dropAnimation={{
-          duration: 200,
-          easing: "cubic-bezier(0.2, 0.8, 0.35, 1)",
-        }}
-      >
-        {activeTask ? (
-          <div className="rotate-2 cursor-grabbing">
-            <TaskCard
-              task={activeTask}
-              showProject={showProject}
-              className="shadow-lg ring-1 ring-border"
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+      {dragOverlay}
+    </>
   );
 }
 
@@ -419,25 +421,24 @@ function KanbanColumn({
   );
 }
 
-function DraggableTaskCard({
+/**
+ * Makes a card or row draggable and clickable. Dragging is always on — even
+ * with no droppable column, the sidebar's projects accept the drop.
+ */
+function DraggableTask({
   dragId,
   task,
-  showProject,
-  draggable,
   onOpen,
-  onToggleDone,
+  children,
 }: {
   dragId: string;
   task: TaskWithMeta;
-  showProject: boolean;
-  draggable: boolean;
   onOpen: () => void;
-  onToggleDone: (done: boolean) => void;
+  children: React.ReactNode;
 }) {
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: dragId,
     data: { task },
-    disabled: !draggable,
   });
 
   return (
@@ -446,17 +447,12 @@ function DraggableTaskCard({
       {...listeners}
       {...attributes}
       className={cn(
-        "touch-none outline-none",
-        draggable ? "cursor-grab" : "cursor-pointer",
+        "cursor-grab touch-none outline-none",
         isDragging && "opacity-40",
       )}
       onClick={onOpen}
     >
-      <TaskCard
-        task={task}
-        showProject={showProject}
-        onToggleDone={onToggleDone}
-      />
+      {children}
     </div>
   );
 }
@@ -593,19 +589,14 @@ function AvatarStack({ people }: { people: Person[] }) {
 function TaskRow({
   task,
   showProject,
-  onOpen,
   onToggleDone,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
-  onOpen: () => void;
   onToggleDone: (done: boolean) => void;
 }) {
   return (
-    <div
-      className="flex w-full cursor-pointer items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50"
-      onClick={onOpen}
-    >
+    <div className="flex w-full items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50">
       <DoneCheckbox task={task} onToggleDone={onToggleDone} />
       <span
         className={cn(
