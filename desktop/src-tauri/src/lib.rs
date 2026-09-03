@@ -222,7 +222,7 @@ fn show_connect_page(app: &AppHandle, suggested: Option<String>) {
 fn handle_deep_link(app: &AppHandle, url: &Url) {
     if url.host_str() == Some(CONNECT_HOST) {
         // `toodoo://connect?server=https://todo.acme.com`, from the web app's
-        // /desktop page or its "Switch server" entry. It only prefills the
+        // install dialog or its "Switch server" entry. It only prefills the
         // connect page — the user still confirms — so a rogue link can never
         // silently repoint the app at another server.
         if pinned_app_url().is_some() {
