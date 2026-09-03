@@ -1,7 +1,4 @@
-import { Hash } from "lucide-react";
-import Link from "next/link";
-
-import { AppearanceIcon } from "@/lib/appearance";
+import { SidebarProjectLink } from "@/components/sidebar-project-link";
 import { getUserProjects } from "@/lib/data";
 
 export async function SidebarProjects({ userId }: { userId: string }) {
@@ -18,19 +15,7 @@ export async function SidebarProjects({ userId }: { userId: string }) {
   return (
     <div className="flex flex-col gap-0.5 px-2">
       {projects.map((project) => (
-        <Link
-          key={project.id}
-          href={`/projects/${project.id}`}
-          className="flex h-8 items-center gap-2 rounded-lg px-2 text-sm text-foreground hover:bg-accent"
-        >
-          <AppearanceIcon
-            icon={project.icon}
-            color={project.color}
-            fallback={Hash}
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-          <span className="truncate">{project.name}</span>
-        </Link>
+        <SidebarProjectLink key={project.id} project={project} />
       ))}
     </div>
   );

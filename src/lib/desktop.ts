@@ -1,9 +1,9 @@
 import "server-only";
 
 /**
- * Where the desktop installers come from. The /desktop page links to the
- * latest `desktop-v*` GitHub release of this repository. Upstream builds work
- * with any deployment (the app asks for the server on first launch), so
+ * Where the desktop installers come from. The in-app install dialog links to
+ * the latest `desktop-v*` GitHub release of this repository. Upstream builds
+ * work with any deployment (the app asks for the server on first launch), so
  * self-hosters can leave the default; forks that ship their own build point
  * it at their repository.
  */
@@ -35,7 +35,7 @@ type GitHubRelease = {
  * Resolve direct download links for the latest published desktop release.
  * Cached for five minutes (a dozen GitHub API calls an hour, far below the
  * unauthenticated limit) so a freshly published release shows up quickly; any
- * failure degrades to the releases page rather than breaking the /desktop page.
+ * failure degrades to the releases page rather than breaking the dialog.
  */
 export async function getDesktopDownloads(): Promise<DesktopDownloads> {
   const repo = desktopReleasesRepo();

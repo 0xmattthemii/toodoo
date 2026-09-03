@@ -4,6 +4,7 @@ import { ArrowLeftRight, LogOut, Monitor, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { DesktopDialog } from "@/components/desktop-dialog";
 import { ProfileDialog } from "@/components/profile-dialog";
 import { UserAvatar } from "@/components/user-avatar";
 import {
@@ -25,6 +26,7 @@ export function NavUser({
 }) {
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState(false);
   // Inside the desktop app the download link is pointless; offer its server
   // picker instead (the shell intercepts its own toodoo:// scheme).
   const desktopShell = useDesktopShell();
@@ -64,7 +66,7 @@ export function NavUser({
               Switch server…
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onClick={() => router.push("/desktop")}>
+            <DropdownMenuItem onClick={() => setDesktopOpen(true)}>
               <Monitor />
               Download desktop app
             </DropdownMenuItem>
@@ -82,6 +84,7 @@ export function NavUser({
         open={profileOpen}
         onOpenChange={setProfileOpen}
       />
+      <DesktopDialog open={desktopOpen} onOpenChange={setDesktopOpen} />
     </>
   );
 }

@@ -26,7 +26,7 @@ main README).
   profile menu instead of **Download desktop app**).
 - Registers the `toodoo://` deep-link scheme:
   - `toodoo://connect?server=https://todo.acme.com` opens the connect screen
-    with that address filled in — this is what the web app's `/desktop` page
+    with that address filled in — this is what the web app's install dialog
     and **Switch server…** use. It never switches silently: the user still
     clicks Connect, so a rogue link can't repoint the app.
   - `toodoo://host/path?query` is forwarded to `<server>/host/path?query` in
@@ -72,7 +72,7 @@ publish the release — publishing triggers
 onto the floating `updater` release that running apps poll
 (`releases/download/updater/latest.json`). The floating tag exists so that
 publishing unrelated (e.g. web) releases in this repo can never break
-auto-update. The web app's `/desktop` page picks up the new release within a
+auto-update. The web app's install dialog picks up the new release within a
 few minutes (it looks for the latest published `desktop-v*` release and links
 its `.dmg` and `-setup.exe` assets).
 
@@ -115,7 +115,7 @@ to build a fork that hasn't set them:
    automatically from the repository the workflow runs in
    (`https://github.com/<you>/<repo>/releases/download/updater/latest.json`).
 3. **Point your deployment at your releases** — set
-   `DESKTOP_RELEASES_REPO=<you>/<repo>` on the web app so its `/desktop` page
+   `DESKTOP_RELEASES_REPO=<you>/<repo>` on the web app so its install dialog
    offers your installers.
 4. **Optional: pin the server** — set the `TOODOO_APP_URL` repository secret
    to your deployment's `https://` origin. The shell then skips the connect
@@ -124,7 +124,7 @@ to build a fork that hasn't set them:
 5. **Optional: rebrand** — `productName` and the icons (`pnpm tauri icon
    your-icon.png`) are the only things that do need a commit in your fork. If
    you rename the product, update the `/Applications/Toodoo.app` path shown
-   on the `/desktop` page and in the README.
+   in the install dialog and in the README.
 
 Then release as above: `pnpm --dir desktop release patch` and push the tag.
 
@@ -142,8 +142,8 @@ place, which you may simply commit in your fork.
 
 Known limitation: the `toodoo://` deep-link scheme is shared by every build.
 If a machine has both the upstream app and a fork installed, the OS decides
-which one handles `toodoo://connect` links; the `/desktop` page's typed
-address still works in either.
+which one handles `toodoo://connect` links; the address typed on the app's
+own connect screen still works in either.
 
 ## Not yet done
 
@@ -151,7 +151,7 @@ address still works in either.
   macOS builds are ad-hoc signed and Gatekeeper reports downloaded ad-hoc apps
   as "damaged" on Apple Silicon until users run
   `xattr -d com.apple.quarantine /Applications/Toodoo.app`; Windows builds
-  trigger SmartScreen. The `/desktop` page tells users what to do. The
+  trigger SmartScreen. The install dialog tells users what to do. The
   workflow has the secret names for Developer ID / Trusted Signing stubbed in
   comments for when this is set up.
 - **Native extras** — tray / menu-bar quick add, global shortcut,
