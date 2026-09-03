@@ -55,10 +55,22 @@ export function useTaskDnd() {
   return value;
 }
 
-// Prefer the target under the pointer; fall back to overlap for edge drops.
+/**
+ * Prefer whatever is under the pointer; fall back to rect overlap so a drop
+ * near a kanban column's edge still lands. The fallback deliberately skips the
+ * sidebar's rows: they are small, sit beside the board, and the wide drag
+ * overlay overlaps them long before the pointer gets there — which would drop
+ * a task into a project nobody pointed at.
+ */
 const collisionDetection: CollisionDetection = (args) => {
   const withPointer = pointerWithin(args);
-  return withPointer.length > 0 ? withPointer : rectIntersection(args);
+  if (withPointer.length > 0) return withPointer;
+  return rectIntersection({
+    ...args,
+    droppableContainers: args.droppableContainers.filter(
+      (container) => sidebarProjectFromDropId(String(container.id)) === null,
+    ),
+  });
 };
 
 /**

@@ -596,7 +596,7 @@ function TaskRow({
   onToggleDone: (done: boolean) => void;
 }) {
   return (
-    <div className="flex w-full items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left select-none hover:bg-muted/50">
+    <div className="flex w-full items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50">
       <DoneCheckbox task={task} onToggleDone={onToggleDone} />
       <span
         className={cn(

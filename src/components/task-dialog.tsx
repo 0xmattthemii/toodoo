@@ -387,7 +387,10 @@ export function TaskDialog({
 
       {/* Nested: creating a project here selects it for this task instead of
           navigating to it, so the half-filled task isn't lost. */}
-      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+      <Dialog
+        open={projectDialogOpen && open}
+        onOpenChange={setProjectDialogOpen}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>
