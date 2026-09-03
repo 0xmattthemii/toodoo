@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Connect to your toodoo</title>
+    <style>
+      /* Mirrors the web app's neutral palette (src/app/globals.css). */
+      :root {
+        --background: oklch(1 0 0);
+        --foreground: oklch(0.145 0 0);
+        --card: oklch(1 0 0);
+        --muted: oklch(0.97 0 0);
+        --muted-foreground: oklch(0.556 0 0);
+        --primary: oklch(0.205 0 0);
+        --primary-foreground: oklch(0.985 0 0);
+        --border: oklch(0.922 0 0);
+        --input: oklch(0.922 0 0);
+        --ring: oklch(0.708 0 0);
+        --destructive: oklch(0.577 0.245 27.325);
+        --radius: 0.625rem;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: oklch(0.145 0 0);
+          --foreground: oklch(0.985 0 0);
+          --card: oklch(0.205 0 0);
+          --muted: oklch(0.269 0 0);
+          --muted-foreground: oklch(0.708 0 0);
+          --primary: oklch(0.922 0 0);
+          --primary-foreground: oklch(0.205 0 0);
+          --border: oklch(1 0 0 / 10%);
+          --input: oklch(1 0 0 / 15%);
+          --ring: oklch(0.556 0 0);
+          --destructive: oklch(0.704 0.191 22.216);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2rem;
+        padding: 1rem;
+        background: var(--background);
+        color: var(--foreground);
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: default;
+      }
+      /* Dotted backdrop faded toward the edges, like the auth pages. */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image: radial-gradient(var(--border) 1px, transparent 1px);
+        background-size: 22px 22px;
+        -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 40%, black, transparent);
+        mask-image: radial-gradient(ellipse 70% 70% at 50% 40%, black, transparent);
+      }
+      .wordmark {
+        position: relative;
+        font-size: 1.875rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+      }
+      .card {
+        position: relative;
+        width: 100%;
+        max-width: 24rem;
+        padding: 1.5rem;
+        border: 1px solid var(--border);
+        border-radius: calc(var(--radius) * 1.4);
+        background: var(--card);
+        box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.04), 0 8px 10px -6px rgb(0 0 0 / 0.04);
+        display: grid;
+        gap: 1rem;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        text-align: center;
+      }
+      .description {
+        margin: -0.5rem 0 0;
+        color: var(--muted-foreground);
+        text-align: center;
+        text-wrap: balance;
+      }
+      form {
+        display: grid;
+        gap: 1rem;
+      }
+      .field {
+        display: grid;
+        gap: 0.5rem;
+      }
+      label {
+        font-weight: 500;
+        font-size: 0.875rem;
+      }
+      input {
+        width: 100%;
+        height: 2.25rem;
+        padding: 0 0.75rem;
+        border: 1px solid var(--input);
+        border-radius: 0.5rem;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 0.875rem;
+        outline: none;
+        user-select: text;
+        -webkit-user-select: text;
+        cursor: text;
+      }
+      input::placeholder {
+        color: var(--muted-foreground);
+      }
+      input:focus-visible {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+      }
+      input[aria-invalid="true"] {
+        border-color: var(--destructive);
+        box-shadow: 0 0 0 3px color-mix(in oklch, var(--destructive) 20%, transparent);
+      }
+      button {
+        position: relative;
+        height: 2.25rem;
+        padding: 0 0.75rem;
+        border: 1px solid transparent;
+        border-radius: 0.5rem;
+        font: inherit;
+        font-weight: 500;
+        cursor: default;
+        transition: background-color 120ms, opacity 120ms;
+      }
+      button:disabled {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+      button:focus-visible {
+        outline: none;
+        border-color: var(--ring);
+        box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+      }
+      .primary {
+        width: 100%;
+        background: var(--primary);
+        color: var(--primary-foreground);
+      }
+      .primary:hover {
+        background: color-mix(in oklch, var(--primary) 80%, transparent);
+      }
+      .primary[data-loading="true"] > .label {
+        visibility: hidden;
+      }
+      .primary[data-loading="true"]::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 1rem;
+        height: 1rem;
+        margin: -0.5rem 0 0 -0.5rem;
+        border: 2px solid color-mix(in oklch, var(--primary-foreground) 30%, transparent);
+        border-top-color: var(--primary-foreground);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .ghost {
+        background: transparent;
+        color: var(--muted-foreground);
+        font-size: 0.8125rem;
+        justify-self: center;
+        height: 2rem;
+      }
+      .ghost:hover {
+        color: var(--foreground);
+        background: var(--muted);
+      }
+      .error {
+        margin: 0;
+        color: var(--destructive);
+        font-size: 0.8125rem;
+        min-height: 0;
+      }
+      .error:empty {
+        display: none;
+      }
+      .hint {
+        margin: 0;
+        color: var(--muted-foreground);
+        font-size: 0.75rem;
+        text-align: center;
+        text-wrap: balance;
+      }
+      code {
+        font: 0.75rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wordmark">toodoo</div>
+    <main class="card">
+      <h1>Connect to your toodoo</h1>
+      <p class="description">
+        Enter the address your team uses to open toodoo in the browser.
+      </p>
+      <form id="form" novalidate>
+        <div class="field">
+          <label for="server">Server address</label>
+          <input
+            id="server"
+            name="server"
+            type="url"
+            inputmode="url"
+            placeholder="https://todo.acme.com"
+            autocomplete="url"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            required
+          />
+          <p id="error" class="error" role="alert" aria-live="polite"></p>
+        </div>
+        <button id="submit" class="primary" type="submit">
+          <span class="label">Connect</span>
+        </button>
+        <button id="cancel" class="ghost" type="button" hidden></button>
+      </form>
+    </main>
+    <p class="hint" id="hint">
+      Don't know the address? Ask whoever set up toodoo for your team.
+    </p>
+    <script>
+      const tauri = window.__TAURI__ && window.__TAURI__.core;
+      const form = document.getElementById("form");
+      const input = document.getElementById("server");
+      const submit = document.getElementById("submit");
+      const cancel = document.getElementById("cancel");
+      const error = document.getElementById("error");
+      const hint = document.getElementById("hint");
+
+      function setError(message) {
+        error.textContent = message;
+        input.setAttribute("aria-invalid", message ? "true" : "false");
+      }
+
+      function setBusy(busy) {
+        submit.dataset.loading = String(busy);
+        submit.disabled = busy;
+        input.disabled = busy;
+        cancel.disabled = busy;
+      }
+
+      async function init() {
+        if (!tauri) {
+          setError("This page only works inside the Toodoo desktop app.");
+          submit.disabled = true;
+          return;
+        }
+        const info = await tauri.invoke("connect_info");
+        input.value = info.suggested || info.current || "";
+        if (info.current) {
+          cancel.hidden = false;
+          cancel.textContent = "Cancel";
+          if (info.suggested && info.suggested !== info.current) {
+            hint.innerHTML = "";
+            hint.append("Currently connected to ", code(info.current), ".");
+          }
+        }
+        if (info.suggested) {
+          hint.hidden = false;
+        }
+        input.focus();
+        input.select();
+      }
+
+      function code(text) {
+        const el = document.createElement("code");
+        el.textContent = text;
+        return el;
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setError("");
+        setBusy(true);
+        try {
+          // On success the shell navigates this window to the server, so
+          // the page simply goes away while still showing the spinner.
+          await tauri.invoke("connect", { url: input.value });
+        } catch (err) {
+          setError(typeof err === "string" ? err : String(err));
+          setBusy(false);
+          input.focus();
+        }
+      });
+
+      input.addEventListener("input", () => setError(""));
+
+      cancel.addEventListener("click", () => tauri.invoke("cancel_connect"));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !cancel.hidden && !cancel.disabled) {
+          tauri.invoke("cancel_connect");
+        }
+      });
+
+      init().catch((err) => setError(String(err)));
+    </script>
+  </body>
+</html>

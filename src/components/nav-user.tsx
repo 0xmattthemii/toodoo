@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, UserRound } from "lucide-react";
+import { ArrowLeftRight, LogOut, Monitor, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { authClient } from "@/lib/auth-client";
+import { DESKTOP_CONNECT_URL, useDesktopShell } from "@/lib/desktop-shell";
 
 export function NavUser({
   user,
@@ -24,6 +25,9 @@ export function NavUser({
 }) {
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
+  // Inside the desktop app the download link is pointless; offer its server
+  // picker instead (the shell intercepts its own toodoo:// scheme).
+  const desktopShell = useDesktopShell();
 
   async function handleSignOut() {
     await authClient.signOut();
@@ -50,6 +54,21 @@ export function NavUser({
             <UserRound />
             Profile
           </DropdownMenuItem>
+          {desktopShell ? (
+            <DropdownMenuItem
+              onClick={() => {
+                window.location.href = DESKTOP_CONNECT_URL;
+              }}
+            >
+              <ArrowLeftRight />
+              Switch server…
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={() => router.push("/desktop")}>
+              <Monitor />
+              Download desktop app
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleSignOut}>
             <LogOut />
