@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The bundled connect page (tauri://localhost) may use the core APIs and the app's own commands. No `remote` entry on purpose: pages loaded from the connected server get no IPC access.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
