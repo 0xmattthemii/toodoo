@@ -33,7 +33,8 @@ type GitHubRelease = {
 
 /**
  * Resolve direct download links for the latest published desktop release.
- * Cached for an hour (well within GitHub's unauthenticated rate limit); any
+ * Cached for five minutes (a dozen GitHub API calls an hour, far below the
+ * unauthenticated limit) so a freshly published release shows up quickly; any
  * failure degrades to the releases page rather than breaking the /desktop page.
  */
 export async function getDesktopDownloads(): Promise<DesktopDownloads> {
@@ -52,7 +53,7 @@ export async function getDesktopDownloads(): Promise<DesktopDownloads> {
           Accept: "application/vnd.github+json",
           "User-Agent": "toodoo",
         },
-        next: { revalidate: 3600 },
+        next: { revalidate: 300 },
       },
     );
     if (!response.ok) return fallback;

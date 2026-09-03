@@ -72,9 +72,9 @@ publish the release — publishing triggers
 onto the floating `updater` release that running apps poll
 (`releases/download/updater/latest.json`). The floating tag exists so that
 publishing unrelated (e.g. web) releases in this repo can never break
-auto-update. The web app's `/desktop` page picks up the new release within an
-hour (it looks for the latest published `desktop-v*` release and links its
-`.dmg` and `-setup.exe` assets).
+auto-update. The web app's `/desktop` page picks up the new release within a
+few minutes (it looks for the latest published `desktop-v*` release and links
+its `.dmg` and `-setup.exe` assets).
 
 ### Auto-update
 
