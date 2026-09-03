@@ -3,6 +3,12 @@
   "productName": "Toodoo",
   "version": "0.1.0",
   "identifier": "io.github.0xmattthemii.toodoo",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg", "nsis"],

@@ -93,6 +93,17 @@ jobs:
       # toolchain is never used by this build.
       - run: pnpm install --frozen-lockfile --filter toodoo-desktop
 
+      # Forks ship their own app without editing source: the bundle identifier
+      # and updater public key come from repository variables, and the updater
+      # endpoint always points at the repository running this build. Fails
+      # with instructions when a fork hasn't set them (see desktop/README.md).
+      - name: Apply fork configuration
+        shell: bash
+        env:
+          DESKTOP_BUNDLE_ID: ${{ vars.DESKTOP_BUNDLE_ID }}
+          DESKTOP_UPDATER_PUBKEY: ${{ vars.DESKTOP_UPDATER_PUBKEY }}
+        run: node desktop/scripts/apply-fork-config.mjs
+
       # Updater artifacts are signed with TAURI_SIGNING_* (required).
       # tagName is passed alongside releaseId so latest.json download URLs
       # point at this tag's assets rather than releases/latest.
@@ -105,6 +116,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Optional, for forks only: pins the build to one deployment (no
+          # server picker). Unset/empty — the upstream default — builds the
+          # generic app that asks for the server on first launch.
+          TOODOO_APP_URL: ${{ secrets.TOODOO_APP_URL }}
         with:
           projectPath: desktop
           args: ${{ matrix.args }}
