@@ -6,9 +6,9 @@ A simple, minimalist todo app for teams. Self-host it on your own infrastructure
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2F0xmattthemii%2Ftoodoo&project-name=toodoo&repository-name=toodoo&env=DATABASE_URL,BETTER_AUTH_SECRET&envDescription=Postgres%20connection%20string%20%2B%20session%20signing%20secret%20%28openssl%20rand%20-base64%2032%29&envLink=https%3A%2F%2Fgithub.com%2F0xmattthemii%2Ftoodoo%23getting-started)
 
 - **Tasks** with deadlines, status, and one or more assignees
-- **Projects** to group tasks, with member roles (admin / member) and a custom icon + color
+- **Projects** to group tasks, with member roles (admin / member) and a custom icon + color — create one straight from the task dialog
 - **Invitations** by email — existing users are added instantly, new users join automatically when they sign up
-- **Flexible boards** — list or kanban, an explicit "Group by" control, and stackable filters (field → condition) shown as removable badges; drag & drop across kanban columns
+- **Flexible boards** — list or kanban, an explicit "Group by" control, and stackable filters (field → condition) shown as removable badges; drag & drop tasks across kanban columns or onto a project in the sidebar
 - **Saved views** — save any grouping/filter combination as a named view with its own icon and color; views live in the sidebar and can be edited, updated, or deleted
 
 ## Stack

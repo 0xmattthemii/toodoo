@@ -1,11 +1,12 @@
 "use client";
 
 import { addDays, format, startOfToday } from "date-fns";
-import { CalendarIcon, Trash2, X } from "lucide-react";
-import { useState, useTransition } from "react";
+import { CalendarIcon, Plus, Trash2, X } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { createTask, deleteTask, updateTask } from "@/actions/tasks";
+import { ProjectForm } from "@/components/project-form";
 import { UserAvatar } from "@/components/user-avatar";
 import { LoadingButton } from "@/components/loading-button";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,8 @@ import type {
 } from "@/lib/types";
 
 const NO_PROJECT = "none";
+/** Sentinel item in the project select — never stored as a task's project. */
+const NEW_PROJECT = "new";
 
 export function TaskDialog({
   open,
@@ -71,6 +74,13 @@ export function TaskDialog({
   const [pending, startTransition] = useTransition();
   const [deleting, startDeleteTransition] = useTransition();
 
+  // Projects created from inside this dialog, kept until the server data that
+  // `projects` comes from catches up.
+  const [createdProjects, setCreatedProjects] = useState<ProjectSummary[]>([]);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  // Bumped on each open so the nested form starts blank.
+  const [projectFormKey, setProjectFormKey] = useState(0);
+
   // Re-seed the form from props each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(false);
   if (open !== prevOpen) {
@@ -84,12 +94,25 @@ export function TaskDialog({
       setDeadline(task?.deadline ? new Date(task.deadline) : undefined);
       setDeadlineOpen(false);
       setAssigneeIds(task?.assignees.map((person) => person.id) ?? []);
+      setProjectDialogOpen(false);
     }
   }
 
+  const availableProjects = useMemo(() => {
+    const known = new Set(projects.map((project) => project.id));
+    return [
+      ...projects,
+      ...createdProjects.filter((project) => !known.has(project.id)),
+    ];
+  }, [projects, createdProjects]);
+
   const projectItems = [
     { value: NO_PROJECT, label: "No project" },
-    ...projects.map((project) => ({ value: project.id, label: project.name })),
+    ...availableProjects.map((project) => ({
+      value: project.id,
+      label: project.name,
+    })),
+    { value: NEW_PROJECT, label: "New project" },
   ];
 
   const selectedAssignees = people.filter((person) =>
@@ -102,6 +125,22 @@ export function TaskDialog({
         ? [...current, personId]
         : current.filter((id) => id !== personId),
     );
+  }
+
+  function onSelectProject(value: string) {
+    if (value === NEW_PROJECT) {
+      setProjectFormKey((key) => key + 1);
+      setProjectDialogOpen(true);
+      return;
+    }
+    setProjectId(value);
+  }
+
+  /** A project created from the nested dialog becomes this task's project. */
+  function onProjectCreated(project: ProjectSummary) {
+    setCreatedProjects((current) => [...current, project]);
+    setProjectId(project.id);
+    setProjectDialogOpen(false);
   }
 
   function pickDeadline(date: Date | undefined) {
@@ -180,7 +219,7 @@ export function TaskDialog({
               <Label>Project</Label>
               <Select
                 value={projectId}
-                onValueChange={(value) => setProjectId(value as string)}
+                onValueChange={(value) => onSelectProject(value as string)}
                 items={projectItems}
               >
                 <SelectTrigger className="w-full">
@@ -189,7 +228,13 @@ export function TaskDialog({
                 <SelectContent>
                   {projectItems.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      {item.value === NEW_PROJECT ? (
+                        <>
+                          <Plus /> {item.label}
+                        </>
+                      ) : (
+                        item.label
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -339,6 +384,24 @@ export function TaskDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* Nested: creating a project here selects it for this task instead of
+          navigating to it, so the half-filled task isn't lost. */}
+      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New project</DialogTitle>
+            <DialogDescription>
+              It will be selected for this task once created.
+            </DialogDescription>
+          </DialogHeader>
+          <ProjectForm
+            key={projectFormKey}
+            onCreated={onProjectCreated}
+            onCancel={() => setProjectDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
