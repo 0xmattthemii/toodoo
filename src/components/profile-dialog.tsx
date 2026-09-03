@@ -19,7 +19,13 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 
+
+const CHANGE_PASSWORD_HEADING = {
+  title: "Change password",
+  description: "You'll stay signed in here; other devices are signed out.",
+};
 
 export function ProfileDialog({
   user,
@@ -61,6 +67,7 @@ export function ProfileDialog({
     };
   }, [open]);
 
+  const loading = providers === null;
   const hasPassword = providers?.includes("credential") ?? false;
   const hasGoogle = providers?.includes("google") ?? false;
 
@@ -185,65 +192,82 @@ export function ProfileDialog({
             </p>
           </div>
 
-          {providers === null ? (
-            <div className="grid gap-2" aria-hidden>
-              {googleEnabled ? <Skeleton className="h-9 rounded-lg" /> : null}
-              <Skeleton className="h-9 rounded-lg" />
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {googleEnabled ? (
-                <div className="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm">
-                  <GoogleLogo />
-                  <span className="flex-1">Google</span>
-                  {hasGoogle ? (
-                    <Badge variant="secondary">
-                      <Check />
-                      Connected
-                    </Badge>
-                  ) : (
-                    <LoadingButton
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="-mr-2 h-7"
-                      loading={linkingGoogle}
-                      onClick={onConnectGoogle}
-                    >
-                      Connect
-                    </LoadingButton>
-                  )}
-                </div>
-              ) : null}
-              <div className="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm">
-                <span className="flex-1">Password</span>
-                {hasPassword ? (
+          {/* The rows themselves are always real — only the state on the right
+              is loaded — so nothing moves when the providers arrive. */}
+          <div className="grid gap-2">
+            {googleEnabled ? (
+              <MethodRow icon={<GoogleLogo />} label="Google">
+                {loading ? (
+                  <StateSkeleton className="w-24" />
+                ) : hasGoogle ? (
                   <Badge variant="secondary">
                     <Check />
-                    Set
+                    Connected
                   </Badge>
-                ) : setPasswordSent ? (
-                  <span className="text-xs text-muted-foreground">
-                    Check your email for a link
-                  </span>
                 ) : (
                   <LoadingButton
                     type="button"
                     variant="ghost"
                     size="sm"
                     className="-mr-2 h-7"
-                    loading={sendingSetPassword}
-                    onClick={onSetPassword}
+                    loading={linkingGoogle}
+                    onClick={onConnectGoogle}
                   >
-                    Set a password
+                    Connect
                   </LoadingButton>
                 )}
-              </div>
-            </div>
-          )}
+              </MethodRow>
+            ) : null}
+            <MethodRow label="Password">
+              {loading ? (
+                <StateSkeleton className="w-14" />
+              ) : hasPassword ? (
+                <Badge variant="secondary">
+                  <Check />
+                  Set
+                </Badge>
+              ) : setPasswordSent ? (
+                <span className="text-xs text-muted-foreground">
+                  Check your email for a link
+                </span>
+              ) : (
+                <LoadingButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="-mr-2 h-7"
+                  loading={sendingSetPassword}
+                  onClick={onSetPassword}
+                >
+                  Set a password
+                </LoadingButton>
+              )}
+            </MethodRow>
+          </div>
         </div>
 
-        {hasPassword ? (
+        {/* Whether this section exists depends on the providers, so while they
+            load it is mirrored by a skeleton of the same height — the common
+            case is an account that has a password. */}
+        {loading ? (
+          <>
+            <Separator className="my-2" />
+            <div className="grid gap-4" aria-hidden>
+              <SectionHeading {...CHANGE_PASSWORD_HEADING} loading />
+              <div className="grid grid-cols-2 gap-3">
+                {[0, 1].map((column) => (
+                  <div key={column} className="grid gap-2">
+                    <Skeleton className="h-3.5 w-16" />
+                    <Skeleton className="h-8 rounded-lg" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <Skeleton className="h-8 w-32 rounded-lg" />
+              </div>
+            </div>
+          </>
+        ) : hasPassword ? (
           <>
             <Separator className="my-2" />
             <form
@@ -251,13 +275,7 @@ export function ProfileDialog({
               onSubmit={onChangePassword}
               className="grid gap-4"
             >
-              <div className="grid gap-1">
-                <p className="text-sm font-medium">Change password</p>
-                <p className="text-xs text-muted-foreground">
-                  You&apos;ll stay signed in here; other devices are signed
-                  out.
-                </p>
-              </div>
+              <SectionHeading {...CHANGE_PASSWORD_HEADING} />
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
                   <Label htmlFor="profile-current-password">Current</Label>
@@ -295,5 +313,66 @@ export function ProfileDialog({
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** One sign-in method: fixed-height row whose right side holds its state. */
+function MethodRow({
+  icon,
+  label,
+  children,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm">
+      {icon}
+      <span className="flex-1">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+/** Placeholder shaped like the badge a loaded method row shows. */
+function StateSkeleton({ className }: { className: string }) {
+  return <Skeleton className={cn("h-5 rounded-4xl", className)} aria-hidden />;
+}
+
+/**
+ * Title and one-line explainer for a section. `loading` swaps the text for
+ * skeletons of the same lines, so the block keeps its height at any width.
+ */
+function SectionHeading({
+  title,
+  description,
+  loading = false,
+}: {
+  title: string;
+  description: string;
+  loading?: boolean;
+}) {
+  return (
+    <div className="grid gap-1">
+      <p className="text-sm font-medium">
+        {loading ? <TextSkeleton>{title}</TextSkeleton> : title}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {loading ? <TextSkeleton>{description}</TextSkeleton> : description}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Inline placeholder for a run of text: the real string, made transparent, so
+ * it wraps into exactly the lines it will occupy once loaded.
+ */
+function TextSkeleton({ children }: { children: string }) {
+  return (
+    <span className="animate-pulse rounded-md bg-muted text-transparent select-none">
+      {children}
+    </span>
   );
 }
