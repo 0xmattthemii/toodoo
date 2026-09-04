@@ -46,7 +46,10 @@ export function AppSidebar({
         </Link>
       </nav>
 
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
+      {/* pt-2 rather than all of the offset as mt: overflow-y-auto makes
+          overflow-x compute to auto as well, so the Projects header being
+          flush with this box's edge cropped the focus ring on its + button. */}
+      <div className="mt-2 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pt-2 pb-2">
         <div>
           <div className="flex items-center justify-between px-4 pb-1">
             <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">

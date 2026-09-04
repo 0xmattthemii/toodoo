@@ -77,8 +77,11 @@ export function TaskDialog({
   // Projects created from inside this dialog, kept until the server data that
   // `projects` comes from catches up.
   const [createdProjects, setCreatedProjects] = useState<ProjectSummary[]>([]);
-  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  // Bumped on each open so the nested form starts blank.
+  // Creating a project takes over this dialog rather than stacking a second
+  // one on top of it. Every task field is controlled state, so the task form
+  // can unmount and come back exactly as it was.
+  const [pane, setPane] = useState<"task" | "project">("task");
+  // Bumped on each visit so the project form starts blank.
   const [projectFormKey, setProjectFormKey] = useState(0);
 
   // Re-seed the form from props each time the dialog opens.
@@ -94,7 +97,7 @@ export function TaskDialog({
       setDeadline(task?.deadline ? new Date(task.deadline) : undefined);
       setDeadlineOpen(false);
       setAssigneeIds(task?.assignees.map((person) => person.id) ?? []);
-      setProjectDialogOpen(false);
+      setPane("task");
     }
   }
 
@@ -130,17 +133,17 @@ export function TaskDialog({
   function onSelectProject(value: string) {
     if (value === NEW_PROJECT) {
       setProjectFormKey((key) => key + 1);
-      setProjectDialogOpen(true);
+      setPane("project");
       return;
     }
     setProjectId(value);
   }
 
-  /** A project created from the nested dialog becomes this task's project. */
+  /** A project created here becomes this task's project, then back to the task. */
   function onProjectCreated(project: ProjectSummary) {
     setCreatedProjects((current) => [...current, project]);
     setProjectId(project.id);
-    setProjectDialogOpen(false);
+    setPane("task");
   }
 
   function pickDeadline(date: Date | undefined) {
@@ -182,229 +185,241 @@ export function TaskDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next, details) => {
+        // Escape on the project pane steps back to the task rather than
+        // throwing the half-filled task away, the way the pane it replaced
+        // used to. The close button and a press outside still close outright.
+        if (!next && pane === "project" && details.reason === "escape-key") {
+          setPane("task");
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{task ? "Edit task" : "New task"}</DialogTitle>
-          <DialogDescription>
-            {task
-              ? "Update the details of this task."
-              : "Add a task with a deadline and assignees."}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={onSubmit} className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="task-title">Title</Label>
-            <Input
-              id="task-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="What needs to be done?"
-              required
-              autoFocus
+        {pane === "project" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>New project</DialogTitle>
+              <DialogDescription>
+                It will be selected for this task once created. Your task is
+                kept as you left it.
+              </DialogDescription>
+            </DialogHeader>
+            {/* Nothing focusable sits above the form, so the dialog hands the
+                caret straight to its Name field. */}
+            <ProjectForm
+              key={projectFormKey}
+              onCreated={onProjectCreated}
+              onCancel={() => setPane("task")}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="task-description">Description</Label>
-            <Textarea
-              id="task-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Optional"
-              rows={3}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label>Project</Label>
-              <Select
-                value={projectId}
-                onValueChange={(value) => onSelectProject(value as string)}
-                items={projectItems}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {projectItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.value === NEW_PROJECT ? (
-                        <>
-                          <Plus /> {item.label}
-                        </>
-                      ) : (
-                        item.label
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Deadline</Label>
-              <div className="flex items-center gap-1">
-                <Popover open={deadlineOpen} onOpenChange={setDeadlineOpen}>
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="flex-1 justify-start font-normal"
-                      />
-                    }
-                  >
-                    <CalendarIcon className="text-muted-foreground" />
-                    {deadline ? (
-                      format(deadline, "PPP")
-                    ) : (
-                      <span className="text-muted-foreground">No deadline</span>
-                    )}
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <div className="flex gap-1 border-b p-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => pickDeadline(startOfToday())}
-                      >
-                        Today
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => pickDeadline(addDays(startOfToday(), 1))}
-                      >
-                        Tomorrow
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => pickDeadline(addDays(startOfToday(), 7))}
-                      >
-                        Next week
-                      </Button>
-                    </div>
-                    <Calendar
-                      mode="single"
-                      selected={deadline}
-                      onSelect={pickDeadline}
-                      fixedWeeks
-                    />
-                  </PopoverContent>
-                </Popover>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Clear deadline"
-                  onClick={() => setDeadline(undefined)}
-                  className={deadline ? undefined : "invisible"}
-                  tabIndex={deadline ? undefined : -1}
-                >
-                  <X />
-                </Button>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>{task ? "Edit task" : "New task"}</DialogTitle>
+              <DialogDescription>
+                {task
+                  ? "Update the details of this task."
+                  : "Add a task with a deadline and assignees."}
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={onSubmit} className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="task-title">Title</Label>
+                <Input
+                  id="task-title"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="What needs to be done?"
+                  required
+                  autoFocus
+                />
               </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Assignees</Label>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
+              <div className="grid gap-2">
+                <Label htmlFor="task-description">Description</Label>
+                <Textarea
+                  id="task-description"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Optional"
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label>Project</Label>
+                  <Select
+                    value={projectId}
+                    onValueChange={(value) => onSelectProject(value as string)}
+                    items={projectItems}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projectItems.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.value === NEW_PROJECT ? (
+                            <>
+                              <Plus /> {item.label}
+                            </>
+                          ) : (
+                            item.label
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Deadline</Label>
+                  <div className="flex items-center gap-1">
+                    <Popover open={deadlineOpen} onOpenChange={setDeadlineOpen}>
+                      <PopoverTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="flex-1 justify-start font-normal"
+                          />
+                        }
+                      >
+                        <CalendarIcon className="text-muted-foreground" />
+                        {deadline ? (
+                          format(deadline, "PPP")
+                        ) : (
+                          <span className="text-muted-foreground">No deadline</span>
+                        )}
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <div className="flex gap-1 border-b p-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => pickDeadline(startOfToday())}
+                          >
+                            Today
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => pickDeadline(addDays(startOfToday(), 1))}
+                          >
+                            Tomorrow
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => pickDeadline(addDays(startOfToday(), 7))}
+                          >
+                            Next week
+                          </Button>
+                        </div>
+                        <Calendar
+                          mode="single"
+                          selected={deadline}
+                          onSelect={pickDeadline}
+                          fixedWeeks
+                        />
+                      </PopoverContent>
+                    </Popover>
                     <Button
                       type="button"
-                      variant="outline"
-                      className="justify-start font-normal"
-                    />
-                  }
-                >
-                  {selectedAssignees.length === 0 ? (
-                    <span className="text-muted-foreground">Unassigned</span>
-                  ) : (
-                    <span className="flex items-center gap-1.5">
-                      <span className="flex -space-x-1.5">
-                        {selectedAssignees.slice(0, 3).map((person) => (
-                          <UserAvatar
-                            key={person.id}
-                            person={person}
-                            className="size-5 ring-2 ring-background"
-                          />
-                        ))}
-                      </span>
-                      {selectedAssignees.length === 1
-                        ? selectedAssignees[0].name
-                        : `${selectedAssignees.length} people`}
-                    </span>
-                  )}
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  {people.map((person) => (
-                    <DropdownMenuCheckboxItem
-                      key={person.id}
-                      checked={assigneeIds.includes(person.id)}
-                      onCheckedChange={(checked) =>
-                        toggleAssignee(person.id, checked === true)
-                      }
-                      closeOnClick
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Clear deadline"
+                      onClick={() => setDeadline(undefined)}
+                      className={deadline ? undefined : "invisible"}
+                      tabIndex={deadline ? undefined : -1}
                     >
-                      <span className="flex items-center gap-2">
-                        <UserAvatar person={person} className="size-5" />
-                        {person.name}
-                      </span>
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <DialogFooter className={task ? "sm:justify-between" : undefined}>
-            {task ? (
-              <LoadingButton
-                type="button"
-                variant="destructive"
-                onClick={onDelete}
-                loading={deleting}
-                disabled={pending}
-              >
-                <Trash2 />
-                Delete
-              </LoadingButton>
-            ) : null}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <LoadingButton type="submit" loading={pending} disabled={deleting}>
-                {task ? "Save changes" : "Create task"}
-              </LoadingButton>
-            </div>
-          </DialogFooter>
-        </form>
+                      <X />
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Assignees</Label>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="justify-start font-normal"
+                        />
+                      }
+                    >
+                      {selectedAssignees.length === 0 ? (
+                        <span className="text-muted-foreground">Unassigned</span>
+                      ) : (
+                        <span className="flex items-center gap-1.5">
+                          <span className="flex -space-x-1.5">
+                            {selectedAssignees.slice(0, 3).map((person) => (
+                              <UserAvatar
+                                key={person.id}
+                                person={person}
+                                className="size-5 ring-2 ring-background"
+                              />
+                            ))}
+                          </span>
+                          {selectedAssignees.length === 1
+                            ? selectedAssignees[0].name
+                            : `${selectedAssignees.length} people`}
+                        </span>
+                      )}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      {people.map((person) => (
+                        <DropdownMenuCheckboxItem
+                          key={person.id}
+                          checked={assigneeIds.includes(person.id)}
+                          onCheckedChange={(checked) =>
+                            toggleAssignee(person.id, checked === true)
+                          }
+                          closeOnClick
+                        >
+                          <span className="flex items-center gap-2">
+                            <UserAvatar person={person} className="size-5" />
+                            {person.name}
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+              <DialogFooter className={task ? "sm:justify-between" : undefined}>
+                {task ? (
+                  <LoadingButton
+                    type="button"
+                    variant="destructive"
+                    onClick={onDelete}
+                    loading={deleting}
+                    disabled={pending}
+                  >
+                    <Trash2 />
+                    Delete
+                  </LoadingButton>
+                ) : null}
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <LoadingButton type="submit" loading={pending} disabled={deleting}>
+                    {task ? "Save changes" : "Create task"}
+                  </LoadingButton>
+                </div>
+              </DialogFooter>
+            </form>
+          </>
+        )}
       </DialogContent>
-
-      {/* Nested: creating a project here selects it for this task instead of
-          navigating to it, so the half-filled task isn't lost. */}
-      <Dialog
-        open={projectDialogOpen && open}
-        onOpenChange={setProjectDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>New project</DialogTitle>
-            <DialogDescription>
-              It will be selected for this task once created.
-            </DialogDescription>
-          </DialogHeader>
-          <ProjectForm
-            key={projectFormKey}
-            onCreated={onProjectCreated}
-            onCancel={() => setProjectDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
     </Dialog>
   );
 }
