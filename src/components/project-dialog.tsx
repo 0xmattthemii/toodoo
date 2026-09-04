@@ -23,15 +23,9 @@ export function ProjectDialog() {
 
   function setOpen(next: boolean) {
     setOpenState(next);
-    if (next) {
-      setFormKey((key) => key + 1);
-    } else {
-      // Drop the focus ring the browser paints on the trigger after the
-      // dialog returns focus to it.
-      requestAnimationFrame(() => {
-        (document.activeElement as HTMLElement | null)?.blur?.();
-      });
-    }
+    // Closing returns focus to the trigger, which is what should happen — the
+    // sidebar leaves room for its focus ring.
+    if (next) setFormKey((key) => key + 1);
   }
 
   return (
