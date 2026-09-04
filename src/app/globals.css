@@ -127,4 +127,10 @@
   html {
     @apply font-sans;
   }
+  /* While a task is being dragged the overlay under the cursor is inert, and
+     drop targets declare no cursor of their own — so without this the pointer
+     reverts to an arrow mid-drag. Set on <html> by TaskDndProvider. */
+  html[data-dragging-task] * {
+    cursor: grabbing !important;
+  }
 }

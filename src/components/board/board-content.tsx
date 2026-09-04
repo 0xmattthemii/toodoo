@@ -73,6 +73,9 @@ function matchesFilter(
 
 type Group = { key: string; label: string; tasks: TaskWithMeta[] };
 
+/** The overlay renders a real row/card, but nothing on it is interactive. */
+const noop = () => {};
+
 export function BoardContent({
   tasks,
   projects,
@@ -274,6 +277,15 @@ export function BoardContent({
     );
   }
 
+  // What follows the cursor is the very component that was grabbed, with the
+  // same props — the overlay inherits the source's measured box, so anything
+  // else would reflow its contents inside it at the moment of the grab. It is
+  // translucent so the column or sidebar project underneath stays readable,
+  // `inert` because it is a visual clone: it keeps a second copy of the task
+  // out of the accessibility tree and the tab order (which pointer-events
+  // alone would not). Drop targets are resolved from pointer coordinates, not
+  // hit-testing, so dnd-kit's own positioned wrapper swallowing the pointer
+  // costs nothing — `pointer-events-none` just says so for the content too.
   const dragOverlay = (
     <DragOverlay
       dropAnimation={{
@@ -282,12 +294,22 @@ export function BoardContent({
       }}
     >
       {activeTask ? (
-        <div className="rotate-2 cursor-grabbing">
-          <TaskCard
-            task={activeTask}
-            showProject={showProject}
-            className="shadow-lg ring-1 ring-border"
-          />
+        <div inert className="pointer-events-none cursor-grabbing opacity-80">
+          {config.mode === "list" ? (
+            <TaskRow
+              task={activeTask}
+              showProject={showProject}
+              onToggleDone={noop}
+              className="shadow-lg ring-1 ring-border"
+            />
+          ) : (
+            <TaskCard
+              task={activeTask}
+              showProject={showProject}
+              onToggleDone={noop}
+              className="shadow-lg ring-1 ring-border"
+            />
+          )}
         </div>
       ) : null}
     </DragOverlay>
@@ -589,14 +611,21 @@ function AvatarStack({ people }: { people: Person[] }) {
 function TaskRow({
   task,
   showProject,
+  className,
   onToggleDone,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
+  className?: string;
   onToggleDone: (done: boolean) => void;
 }) {
   return (
-    <div className="flex w-full items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50">
+    <div
+      className={cn(
+        "flex w-full items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50",
+        className,
+      )}
+    >
       <DoneCheckbox task={task} onToggleDone={onToggleDone} />
       <span
         className={cn(
