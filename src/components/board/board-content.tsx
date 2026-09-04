@@ -281,7 +281,11 @@ export function BoardContent({
   // same props — the overlay inherits the source's measured box, so anything
   // else would reflow its contents inside it at the moment of the grab. It is
   // translucent so the column or sidebar project underneath stays readable,
-  // and inert so it never eats the pointer.
+  // `inert` because it is a visual clone: it keeps a second copy of the task
+  // out of the accessibility tree and the tab order (which pointer-events
+  // alone would not). Drop targets are resolved from pointer coordinates, not
+  // hit-testing, so dnd-kit's own positioned wrapper swallowing the pointer
+  // costs nothing — `pointer-events-none` just says so for the content too.
   const dragOverlay = (
     <DragOverlay
       dropAnimation={{
@@ -290,7 +294,7 @@ export function BoardContent({
       }}
     >
       {activeTask ? (
-        <div className="pointer-events-none cursor-grabbing opacity-80">
+        <div inert className="pointer-events-none cursor-grabbing opacity-80">
           {config.mode === "list" ? (
             <TaskRow
               task={activeTask}
