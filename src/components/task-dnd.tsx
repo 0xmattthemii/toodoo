@@ -15,6 +15,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -91,6 +92,17 @@ export function TaskDndProvider({ children }: { children: React.ReactNode }) {
   const registerDropHandler = useCallback((handler: DropHandler | null) => {
     dropHandler.current = handler;
   }, []);
+
+  // Keep the grabbing cursor for the whole drag (see globals.css): the overlay
+  // that follows the pointer is inert, so it cannot carry the cursor itself.
+  useEffect(() => {
+    if (!activeTask) return;
+    const root = document.documentElement;
+    root.dataset.draggingTask = "";
+    return () => {
+      delete root.dataset.draggingTask;
+    };
+  }, [activeTask]);
 
   function onDragStart(event: DragStartEvent) {
     setActiveTask((event.active.data.current?.task as TaskWithMeta) ?? null);
