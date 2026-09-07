@@ -1,6 +1,6 @@
 "use client";
 
-import { UserPlus, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { startTransition, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -127,10 +127,9 @@ export function MembersDialog({
 
   return (
     <Dialog>
-      <DialogTrigger render={<Button variant="outline" />}>
-        <UserPlus />
-        Members
-        <Badge variant="secondary">{members.length}</Badge>
+      <DialogTrigger render={<Button variant="ghost" />}>
+        <Users />
+        Manage Access
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>

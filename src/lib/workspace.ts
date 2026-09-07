@@ -66,6 +66,16 @@ export function patchTask(
   });
 }
 
+/** Manual-order positions for a set of tasks, as a reorder writes them. */
+export function setTaskPositions(positions: Record<string, number>): Mutation {
+  return (s) => ({
+    ...s,
+    tasks: s.tasks.map((t) =>
+      t.id in positions ? { ...t, position: positions[t.id] } : t,
+    ),
+  });
+}
+
 export function removeTask(taskId: string): Mutation {
   return (s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== taskId) });
 }
@@ -95,6 +105,19 @@ export function patchProject(
     ...s,
     projects: s.projects.map((p) =>
       p.id === projectId ? { ...p, ...patch } : p,
+    ),
+  });
+}
+
+/** Puts the sidebar's projects in this order; any not listed keep theirs, after. */
+export function setProjectOrder(orderedIds: string[]): Mutation {
+  const rank = new Map(orderedIds.map((id, index) => [id, index]));
+  return (s) => ({
+    ...s,
+    projects: [...s.projects].sort(
+      (a, b) =>
+        (rank.get(a.id) ?? Number.POSITIVE_INFINITY) -
+        (rank.get(b.id) ?? Number.POSITIVE_INFINITY),
     ),
   });
 }

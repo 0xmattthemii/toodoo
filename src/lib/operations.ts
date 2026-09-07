@@ -2,7 +2,12 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { projectMembers, projects, taskAssignees, tasks } from "@/db/schema";
-import { canAccessTask, requireMembership } from "@/lib/data";
+import {
+  canAccessTask,
+  nextProjectMemberPosition,
+  nextTaskPosition,
+  requireMembership,
+} from "@/lib/data";
 
 /**
  * User-scoped mutations shared by surfaces that don't carry a cookie session
@@ -29,6 +34,7 @@ export async function createProjectFor(
       projectId: project.id,
       userId,
       role: "admin",
+      position: nextProjectMemberPosition(userId),
     });
     return project;
   });
@@ -59,6 +65,7 @@ export async function createTaskFor(
         description: input.description?.trim() || null,
         deadline: input.deadline ? new Date(input.deadline) : null,
         projectId: input.projectId || null,
+        position: nextTaskPosition(),
         createdBy: userId,
       })
       .returning();

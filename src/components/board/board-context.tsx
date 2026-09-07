@@ -10,6 +10,7 @@ import {
   type GroupBy,
   type Person,
   type ProjectSummary,
+  type SortBy,
   type TaskWithMeta,
 } from "@/lib/types";
 
@@ -22,6 +23,7 @@ type BoardContextValue = {
   config: BoardConfig;
   setMode: (mode: BoardMode) => void;
   setGroupBy: (groupBy: GroupBy) => void;
+  setSortBy: (sortBy: SortBy) => void;
   addFilter: (filter: BoardFilter) => void;
   removeFilter: (filter: BoardFilter) => void;
 
@@ -64,6 +66,7 @@ function normalize(config: BoardConfig) {
   return JSON.stringify({
     mode: config.mode,
     groupBy: config.groupBy,
+    sortBy: config.sortBy,
     filters: [...config.filters].sort((a, b) =>
       `${a.field}:${a.value}`.localeCompare(`${b.field}:${b.value}`),
     ),
@@ -107,6 +110,10 @@ export function BoardProvider({
   );
   const setGroupBy = useCallback(
     (groupBy: GroupBy) => setConfig((current) => ({ ...current, groupBy })),
+    [],
+  );
+  const setSortBy = useCallback(
+    (sortBy: SortBy) => setConfig((current) => ({ ...current, sortBy })),
     [],
   );
   const addFilter = useCallback(
@@ -159,6 +166,7 @@ export function BoardProvider({
       config,
       setMode,
       setGroupBy,
+      setSortBy,
       addFilter,
       removeFilter,
       options,
@@ -179,6 +187,7 @@ export function BoardProvider({
       config,
       setMode,
       setGroupBy,
+      setSortBy,
       addFilter,
       removeFilter,
       options,

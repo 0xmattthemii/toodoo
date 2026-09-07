@@ -45,6 +45,7 @@ export function BoardHeaderSkeleton() {
         <Skeleton className="h-8 w-36 rounded-lg" />
         <Skeleton className="h-8 w-32 rounded-lg" />
         <Skeleton className="h-8 w-28 rounded-lg" />
+        <Skeleton className="h-8 w-28 rounded-lg" />
         <span className="ml-auto flex items-center gap-2">
           <Skeleton className="h-8 w-24 rounded-lg" />
           <Skeleton className="h-8 w-28 rounded-lg" />
