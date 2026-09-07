@@ -26,6 +26,8 @@ export type TaskWithMeta = {
   deadline: Date | null;
   projectId: string | null;
   projectName: string | null;
+  /** Ascending manual order; see `sortBy: "manual"`. */
+  position: number;
   createdBy: string;
   createdAt: Date;
   assignees: Person[];
@@ -42,19 +44,41 @@ export type PendingInvitation = {
 
 export type BoardMode = "list" | "kanban";
 export type GroupBy = "project" | "assignee" | "deadline" | "none";
+/** "manual" is the order tasks were dragged into; the rest are fields. */
+export type SortBy = "manual" | "title" | "deadline" | "created";
 export type FilterField = "assignee" | "project" | "deadline";
+
+export const GROUP_BY_VALUES: GroupBy[] = [
+  "project",
+  "assignee",
+  "deadline",
+  "none",
+];
+export const SORT_BY_VALUES: SortBy[] = [
+  "manual",
+  "title",
+  "deadline",
+  "created",
+];
+export const FILTER_FIELDS: FilterField[] = [
+  "assignee",
+  "project",
+  "deadline",
+];
 
 export type BoardFilter = { field: FilterField; value: string };
 
 export type BoardConfig = {
   mode: BoardMode;
   groupBy: GroupBy;
+  sortBy: SortBy;
   filters: BoardFilter[];
 };
 
 export const DEFAULT_BOARD_CONFIG: BoardConfig = {
   mode: "list",
   groupBy: "none",
+  sortBy: "manual",
   filters: [],
 };
 

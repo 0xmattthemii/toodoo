@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -10,16 +10,36 @@ import {
   user,
   views,
 } from "@/db/schema";
-import type {
-  BoardConfig,
-  MemberWithUser,
-  PendingInvitation,
-  Person,
-  ProjectSummary,
-  Role,
-  TaskWithMeta,
-  ViewSummary,
+import {
+  FILTER_FIELDS,
+  GROUP_BY_VALUES,
+  SORT_BY_VALUES,
+  type BoardConfig,
+  type MemberWithUser,
+  type PendingInvitation,
+  type Person,
+  type ProjectSummary,
+  type Role,
+  type TaskWithMeta,
+  type ViewSummary,
 } from "@/lib/types";
+
+/**
+ * The position a brand-new membership takes: the bottom of that user's
+ * sidebar. Evaluated by Postgres inside the insert, so two projects created
+ * at once can't claim the same slot.
+ */
+export function nextProjectMemberPosition(userId: string) {
+  return sql<number>`(select coalesce(max(${projectMembers.position}), 0) + 1 from ${projectMembers} where ${projectMembers.userId} = ${userId})`;
+}
+
+/**
+ * The position a brand-new task takes: the top of the manual order, matching
+ * where a newly created task has always appeared.
+ */
+export function nextTaskPosition() {
+  return sql<number>`(select coalesce(min(${tasks.position}), 1) - 1 from ${tasks})`;
+}
 
 export async function getUserProjects(
   userId: string,
@@ -36,7 +56,7 @@ export async function getUserProjects(
     .from(projectMembers)
     .innerJoin(projects, eq(projectMembers.projectId, projects.id))
     .where(eq(projectMembers.userId, userId))
-    .orderBy(asc(projects.createdAt));
+    .orderBy(asc(projectMembers.position), asc(projects.createdAt));
   return rows;
 }
 
@@ -182,41 +202,58 @@ const taskSelection = {
   deadline: tasks.deadline,
   projectId: tasks.projectId,
   projectName: projects.name,
+  position: tasks.position,
   createdBy: tasks.createdBy,
   createdAt: tasks.createdAt,
 };
 
-/** Tasks in the user's projects, created by them, or assigned to them. */
-export async function getVisibleTasks(userId: string): Promise<TaskWithMeta[]> {
+/** Tasks the user may see: in their projects, created by them, or assigned. */
+function visibleTasksWhere(userId: string) {
   const myProjects = db
     .select({ id: projectMembers.projectId })
     .from(projectMembers)
     .where(eq(projectMembers.userId, userId));
 
+  return or(
+    eq(tasks.createdBy, userId),
+    inArray(tasks.projectId, myProjects),
+    exists(
+      db
+        .select({ taskId: taskAssignees.taskId })
+        .from(taskAssignees)
+        .where(
+          and(
+            eq(taskAssignees.taskId, tasks.id),
+            eq(taskAssignees.userId, userId),
+          ),
+        ),
+    ),
+  );
+}
+
+/** Tasks in the user's projects, created by them, or assigned to them. */
+export async function getVisibleTasks(userId: string): Promise<TaskWithMeta[]> {
   const rows = await db
     .select(taskSelection)
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))
-    .where(
-      or(
-        eq(tasks.createdBy, userId),
-        inArray(tasks.projectId, myProjects),
-        exists(
-          db
-            .select({ taskId: taskAssignees.taskId })
-            .from(taskAssignees)
-            .where(
-              and(
-                eq(taskAssignees.taskId, tasks.id),
-                eq(taskAssignees.userId, userId),
-              ),
-            ),
-        ),
-      ),
-    )
-    .orderBy(desc(tasks.createdAt));
+    .where(visibleTasksWhere(userId))
+    .orderBy(asc(tasks.position), desc(tasks.createdAt));
 
   return attachAssignees(rows);
+}
+
+/**
+ * The subset of `taskIds` the user may reorder, with the positions they hold
+ * today. One query rather than a per-task permission check, since a reorder
+ * touches a whole group at once.
+ */
+export async function getReorderableTasks(taskIds: string[], userId: string) {
+  if (taskIds.length === 0) return [];
+  return db
+    .select({ id: tasks.id, position: tasks.position })
+    .from(tasks)
+    .where(and(inArray(tasks.id, taskIds), visibleTasksWhere(userId)));
 }
 
 export async function getProjectTasks(
@@ -227,7 +264,7 @@ export async function getProjectTasks(
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))
     .where(eq(tasks.projectId, projectId))
-    .orderBy(desc(tasks.createdAt));
+    .orderBy(asc(tasks.position), desc(tasks.createdAt));
   return attachAssignees(rows);
 }
 
@@ -260,16 +297,13 @@ export async function canAccessTask(taskId: string, userId: string) {
 
 /** Drops config parts from older app versions (e.g. the removed status field). */
 function normalizeConfig(config: BoardConfig): BoardConfig {
-  const groupBy = ["project", "assignee", "deadline", "none"].includes(
-    config.groupBy,
-  )
-    ? config.groupBy
-    : "none";
   return {
     mode: config.mode === "kanban" ? "kanban" : "list",
-    groupBy,
+    groupBy: GROUP_BY_VALUES.includes(config.groupBy) ? config.groupBy : "none",
+    // Views saved before sorting existed carry no sortBy.
+    sortBy: SORT_BY_VALUES.includes(config.sortBy) ? config.sortBy : "manual",
     filters: (config.filters ?? []).filter((filter) =>
-      ["assignee", "project", "deadline"].includes(filter.field),
+      FILTER_FIELDS.includes(filter.field),
     ),
   };
 }
@@ -327,6 +361,7 @@ export async function acceptPendingInvitations(userId: string, email: string) {
         projectId: invitation.projectId,
         userId,
         role: invitation.role,
+        position: nextProjectMemberPosition(userId),
       })
       .onConflictDoNothing();
     await db

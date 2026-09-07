@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { projectMembers, projects } from "@/db/schema";
-import { requireMembership } from "@/lib/data";
+import { nextProjectMemberPosition, requireMembership } from "@/lib/data";
 import { requireSession } from "@/lib/session";
 
 export async function createProject(input: {
@@ -36,6 +36,7 @@ export async function createProject(input: {
       projectId: project.id,
       userId: session.user.id,
       role: "admin",
+      position: nextProjectMemberPosition(session.user.id),
     });
     return project;
   });
@@ -67,6 +68,51 @@ export async function updateProject(
       color: input.color || null,
     })
     .where(eq(projects.id, projectId));
+
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
+/**
+ * Reorders the sidebar for the signed-in user only: the order lives on their
+ * membership rows, so the people they share a project with keep their own.
+ * Expects every project they belong to, since the sidebar shows all of them.
+ */
+export async function reorderProjects(orderedIds: string[]) {
+  const session = await requireSession();
+
+  const memberships = await db
+    .select({ projectId: projectMembers.projectId })
+    .from(projectMembers)
+    .where(eq(projectMembers.userId, session.user.id));
+
+  const mine = new Set(memberships.map((row) => row.projectId));
+  const requested = new Set(orderedIds);
+  if (
+    requested.size !== orderedIds.length ||
+    requested.size !== mine.size ||
+    orderedIds.some((projectId) => !mine.has(projectId))
+  ) {
+    return { error: "That order doesn't match your projects" };
+  }
+
+  await db
+    .update(projectMembers)
+    .set({
+      position: sql`case ${projectMembers.projectId} ${sql.join(
+        orderedIds.map(
+          (projectId, index) =>
+            sql`when ${projectId}::uuid then ${index}::double precision`,
+        ),
+        sql` `,
+      )} end`,
+    })
+    .where(
+      and(
+        eq(projectMembers.userId, session.user.id),
+        inArray(projectMembers.projectId, orderedIds),
+      ),
+    );
 
   revalidatePath("/", "layout");
   return { error: undefined };

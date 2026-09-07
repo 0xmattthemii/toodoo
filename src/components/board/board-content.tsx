@@ -1,6 +1,11 @@
 "use client";
 
-import { DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
+import {
+  DragOverlay,
+  useDndMonitor,
+  useDraggable,
+  useDroppable,
+} from "@dnd-kit/core";
 import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
 import {
@@ -13,10 +18,13 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { moveTaskToProject, setTaskDone } from "@/actions/tasks";
+import { moveTaskToProject, reorderTasks, setTaskDone } from "@/actions/tasks";
 import { useBoard } from "@/components/board/board-context";
+import { DragHandle, type DragHandleProps } from "@/components/drag-handle";
 import {
   sidebarProjectFromDropId,
+  taskDropId,
+  taskFromDropId,
   useTaskDnd,
 } from "@/components/task-dnd";
 import { UserAvatar } from "@/components/user-avatar";
@@ -24,11 +32,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { tryAction } from "@/lib/action";
+import { moveItem, positionSlots } from "@/lib/ordering";
 import { cn } from "@/lib/utils";
 import type {
   BoardFilter,
   Person,
   ProjectSummary,
+  SortBy,
   TaskWithMeta,
 } from "@/lib/types";
 
@@ -72,6 +82,35 @@ function matchesFilter(
   }
 }
 
+/** Newest first, then by id — the tie-break under every sort, so that equal
+ * values never leave two tasks swapping places between renders. */
+function compareNewest(a: TaskWithMeta, b: TaskWithMeta) {
+  const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+}
+
+function compareTasks(a: TaskWithMeta, b: TaskWithMeta, sortBy: SortBy) {
+  switch (sortBy) {
+    case "title":
+      return a.title.localeCompare(b.title) || compareNewest(a, b);
+    case "deadline": {
+      // Tasks with no deadline sit at the end rather than at the front.
+      if (!a.deadline || !b.deadline) {
+        if (a.deadline) return -1;
+        if (b.deadline) return 1;
+        return compareNewest(a, b);
+      }
+      const byDeadline =
+        new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      return byDeadline !== 0 ? byDeadline : compareNewest(a, b);
+    }
+    case "created":
+      return compareNewest(a, b);
+    default:
+      return a.position - b.position || compareNewest(a, b);
+  }
+}
+
 type Group = { key: string; label: string; tasks: TaskWithMeta[] };
 
 /** The overlay renders a real row/card, but nothing on it is interactive. */
@@ -91,8 +130,14 @@ export function BoardContent({
   dialogProjects?: ProjectSummary[];
 }) {
   const board = useBoard();
-  const { config, currentUserId, scopedProjectId, registerOptions, showDone } =
-    board;
+  const {
+    config,
+    currentUserId,
+    scopedProjectId,
+    registerOptions,
+    setSortBy,
+    showDone,
+  } = board;
 
   const projectOptions = dialogProjects ?? projects;
 
@@ -104,8 +149,8 @@ export function BoardContent({
   const [taskOverrides, setTaskOverrides] = useState<
     Record<string, Partial<TaskWithMeta>>
   >({});
-  const { activeTask, registerDropHandler } = useTaskDnd();
-  const justDragged = useRef(false);
+  const { activeTask, activeGroupKey, overId, didJustDrag, registerDropHandler } =
+    useTaskDnd();
   const [, startTransition] = useTransition();
 
   // Reset optimistic overrides once fresh server data arrives.
@@ -119,14 +164,23 @@ export function BoardContent({
     const effective = tasks.map((task) =>
       taskOverrides[task.id] ? { ...task, ...taskOverrides[task.id] } : task,
     );
-    return effective.filter(
-      (task) =>
-        (showDone || !task.done) &&
-        config.filters.every((filter) =>
-          matchesFilter(task, filter, currentUserId),
-        ),
-    );
-  }, [tasks, taskOverrides, config.filters, currentUserId, showDone]);
+    return effective
+      .filter(
+        (task) =>
+          (showDone || !task.done) &&
+          config.filters.every((filter) =>
+            matchesFilter(task, filter, currentUserId),
+          ),
+      )
+      .sort((a, b) => compareTasks(a, b, config.sortBy));
+  }, [
+    tasks,
+    taskOverrides,
+    config.filters,
+    config.sortBy,
+    currentUserId,
+    showDone,
+  ]);
 
   const groups = useMemo<Group[]>(() => {
     const list = filteredTasks;
@@ -224,8 +278,58 @@ export function BoardContent({
     [projectOptions, revertOverride, startTransition],
   );
 
+  /**
+   * Drops the dragged task where the one it landed on sits, within a single
+   * group. Only the group's own tasks are renumbered, and only into the
+   * position slots they already occupy, so the rest of the board stays put.
+   * Whatever the board was sorted by, the order the user now sees is the one
+   * that gets saved — which is why this also switches the sort to manual.
+   */
+  const reorder = useCallback(
+    (groupKey: string, taskId: string, targetTaskId: string) => {
+      const group = groups.find((candidate) => candidate.key === groupKey);
+      if (!group) return;
+      const ids = group.tasks.map((task) => task.id);
+      const from = ids.indexOf(taskId);
+      const to = ids.indexOf(targetTaskId);
+      if (from === -1 || to === -1 || from === to) return;
+
+      const orderedIds = moveItem(ids, from, to);
+      const slots = positionSlots(group.tasks.map((task) => task.position));
+
+      setTaskOverrides((current) => {
+        const next = { ...current };
+        orderedIds.forEach((id, index) => {
+          next[id] = { ...next[id], position: slots[index] };
+        });
+        return next;
+      });
+      setSortBy("manual");
+
+      startTransition(async () => {
+        const result = await tryAction(reorderTasks(orderedIds), {
+          error: "Could not reorder the tasks",
+        });
+        if (result.error) {
+          toast.error(result.error);
+          setTaskOverrides((current) => {
+            const next = { ...current };
+            for (const id of orderedIds) {
+              if (!next[id]) continue;
+              const override = { ...next[id] };
+              delete override.position;
+              next[id] = override;
+            }
+            return next;
+          });
+        }
+      });
+    },
+    [groups, setSortBy, startTransition],
+  );
+
   function openEdit(task: TaskWithMeta) {
-    if (justDragged.current) return;
+    if (didJustDrag()) return;
     board.openEdit(task);
   }
 
@@ -234,12 +338,7 @@ export function BoardContent({
   const canDropOnColumn = config.groupBy === "project";
 
   const onDrop = useCallback(
-    (dropId: string | null, task: TaskWithMeta) => {
-      // Suppress the click that the ending drag would otherwise deliver.
-      justDragged.current = true;
-      setTimeout(() => {
-        justDragged.current = false;
-      }, 100);
+    (dropId: string | null, task: TaskWithMeta, fromGroupKey: string) => {
       if (!dropId) return;
 
       const sidebarProjectId = sidebarProjectFromDropId(dropId);
@@ -249,12 +348,22 @@ export function BoardContent({
         }
         return;
       }
+
+      // Landing on another task reorders within a group, and outside it means
+      // the same as landing on that task's column.
+      const target = taskFromDropId(dropId);
+      const targetGroupKey = target ? target.groupKey : dropId;
+      if (target && target.groupKey === fromGroupKey) {
+        reorder(fromGroupKey, task.id, target.taskId);
+        return;
+      }
+
       if (config.groupBy === "project") {
-        const projectId = dropId === "none" ? null : dropId;
+        const projectId = targetGroupKey === "none" ? null : targetGroupKey;
         if (projectId !== task.projectId) moveProject(task.id, projectId);
       }
     },
-    [config.groupBy, moveProject],
+    [config.groupBy, moveProject, reorder],
   );
 
   useEffect(() => {
@@ -263,6 +372,11 @@ export function BoardContent({
   }, [registerDropHandler, onDrop]);
 
   const showProject = !scopedProjectId && config.groupBy !== "project";
+
+  // The group under the pointer, whether the pointer is over the column itself
+  // or over one of its tasks.
+  const overTask = overId ? taskFromDropId(overId) : null;
+  const overGroupKey = overTask ? overTask.groupKey : overId;
 
   if (filteredTasks.length === 0) {
     return (
@@ -338,30 +452,20 @@ export function BoardContent({
                 No tasks
               </p>
             ) : (
-              <div className="flex flex-col">
-                {group.tasks.map((task) => (
-                  <TaskLeaveWrapper
-                    key={`${group.key}-${task.id}`}
+              <GroupTasks
+                group={group}
+                showDone={showDone}
+                onSetDone={changeDone}
+                onOpen={openEdit}
+                render={(task, toggleDone, handle) => (
+                  <TaskRow
                     task={task}
-                    showDone={showDone}
-                    onSetDone={changeDone}
-                  >
-                    {(displayTask, toggleDone) => (
-                      <DraggableTask
-                        dragId={`${group.key}::${task.id}`}
-                        task={displayTask}
-                        onOpen={() => openEdit(displayTask)}
-                      >
-                        <TaskRow
-                          task={displayTask}
-                          showProject={showProject}
-                          onToggleDone={toggleDone}
-                        />
-                      </DraggableTask>
-                    )}
-                  </TaskLeaveWrapper>
-                ))}
-              </div>
+                    showProject={showProject}
+                    onToggleDone={toggleDone}
+                    handle={handle}
+                  />
+                )}
+              />
             )}
           </section>
         ))}
@@ -379,29 +483,24 @@ export function BoardContent({
             group={group}
             droppable={canDropOnColumn}
             dragging={activeTask !== null}
+            highlight={
+              overGroupKey === group.key && activeGroupKey !== group.key
+            }
           >
-            {group.tasks.map((task) => (
-              <TaskLeaveWrapper
-                key={`${group.key}-${task.id}`}
-                task={task}
-                showDone={showDone}
-                onSetDone={changeDone}
-              >
-                {(displayTask, toggleDone) => (
-                  <DraggableTask
-                    dragId={`${group.key}::${task.id}`}
-                    task={displayTask}
-                    onOpen={() => openEdit(displayTask)}
-                  >
-                    <TaskCard
-                      task={displayTask}
-                      showProject={showProject}
-                      onToggleDone={toggleDone}
-                    />
-                  </DraggableTask>
-                )}
-              </TaskLeaveWrapper>
-            ))}
+            <GroupTasks
+              group={group}
+              showDone={showDone}
+              onSetDone={changeDone}
+              onOpen={openEdit}
+              render={(task, toggleDone, handle) => (
+                <TaskCard
+                  task={task}
+                  showProject={showProject}
+                  onToggleDone={toggleDone}
+                  handle={handle}
+                />
+              )}
+            />
           </KanbanColumn>
         ))}
       </div>
@@ -410,18 +509,98 @@ export function BoardContent({
   );
 }
 
+/**
+ * One group's tasks: draggable, droppable, and previewing a reorder. While a
+ * task from this group hovers another, the rows slide into the order the drop
+ * would produce (mirroring `reorder`). The DOM order stays put and only
+ * transforms change, so the slide animates and no row remounts mid-drag.
+ * Every row in a group has the same height, which is what lets an index
+ * difference become a pixel offset.
+ */
+function GroupTasks({
+  group,
+  showDone,
+  onSetDone,
+  onOpen,
+  render,
+}: {
+  group: Group;
+  showDone: boolean;
+  onSetDone: (taskId: string, done: boolean) => void;
+  onOpen: (task: TaskWithMeta) => void;
+  render: (
+    task: TaskWithMeta,
+    toggleDone: (done: boolean) => void,
+    handle: DragHandleProps,
+  ) => React.ReactNode;
+}) {
+  const { activeTask, activeGroupKey, overId } = useTaskDnd();
+  const container = useRef<HTMLDivElement>(null);
+  const [pitch, setPitch] = useState(0);
+
+  // Measured as the drag starts: a row's box, bottom gap included, is the
+  // distance between neighbours.
+  useDndMonitor({
+    onDragStart() {
+      const first = container.current?.firstElementChild;
+      setPitch(first instanceof HTMLElement ? first.offsetHeight : 0);
+    },
+  });
+
+  const ids = group.tasks.map((task) => task.id);
+  const overTask = overId ? taskFromDropId(overId) : null;
+  const from =
+    activeTask && activeGroupKey === group.key
+      ? ids.indexOf(activeTask.id)
+      : -1;
+  const to =
+    overTask && overTask.groupKey === group.key
+      ? ids.indexOf(overTask.taskId)
+      : -1;
+  const preview =
+    from !== -1 && to !== -1 && from !== to ? moveItem(ids, from, to) : ids;
+
+  return (
+    <div ref={container} className="flex flex-col">
+      {group.tasks.map((task, index) => (
+        <TaskLeaveWrapper
+          key={task.id}
+          task={task}
+          showDone={showDone}
+          onSetDone={onSetDone}
+          shift={(preview.indexOf(task.id) - index) * pitch}
+          animateShift={activeTask !== null}
+        >
+          {(displayTask, toggleDone) => (
+            <DraggableTask
+              groupKey={group.key}
+              task={displayTask}
+              onOpen={() => onOpen(displayTask)}
+            >
+              {(handle) => render(displayTask, toggleDone, handle)}
+            </DraggableTask>
+          )}
+        </TaskLeaveWrapper>
+      ))}
+    </div>
+  );
+}
+
 function KanbanColumn({
   group,
   droppable,
   dragging,
+  highlight,
   children,
 }: {
   group: Group;
   droppable: boolean;
   dragging: boolean;
+  /** True while a drop here would move the task into this column. */
+  highlight: boolean;
   children: React.ReactNode;
 }) {
-  const { setNodeRef, isOver } = useDroppable({
+  const { setNodeRef } = useDroppable({
     id: group.key,
     disabled: !droppable,
   });
@@ -432,7 +611,7 @@ function KanbanColumn({
       className={cn(
         "flex w-72 shrink-0 flex-col rounded-xl bg-muted/50 transition-all duration-150",
         dragging && droppable && "ring-1 ring-border",
-        isOver && "bg-accent ring-2 ring-ring/40",
+        droppable && highlight && "bg-accent ring-2 ring-ring/40",
       )}
     >
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -449,37 +628,49 @@ function KanbanColumn({
 }
 
 /**
- * Makes a card or row draggable and clickable. Dragging is always on — even
- * with no droppable column, the sidebar's projects accept the drop.
+ * Makes a card or row draggable, droppable and clickable. Only its grip starts
+ * a drag — the rest of the row opens the task — and dragging is always on:
+ * even with no droppable column, its neighbours accept the drop as a reorder
+ * and the sidebar's projects accept it as a move.
  */
 function DraggableTask({
-  dragId,
+  groupKey,
   task,
   onOpen,
   children,
 }: {
-  dragId: string;
+  groupKey: string;
   task: TaskWithMeta;
   onOpen: () => void;
-  children: React.ReactNode;
+  children: (handle: DragHandleProps) => React.ReactNode;
 }) {
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
-    id: dragId,
-    data: { task },
+  const { activeTask } = useTaskDnd();
+  const {
+    setNodeRef,
+    setActivatorNodeRef,
+    attributes,
+    listeners,
+    isDragging,
+  } = useDraggable({
+    id: `${groupKey}::${task.id}`,
+    data: { kind: "task", task, groupKey },
+  });
+  // Only a task can be dropped on a task, so the target is dead weight until
+  // one is in the air.
+  const { setNodeRef: setDropRef } = useDroppable({
+    id: taskDropId(groupKey, task.id),
+    disabled: !activeTask,
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={cn(
-        "cursor-grab touch-none outline-none",
-        isDragging && "opacity-40",
-      )}
-      onClick={onOpen}
-    >
-      {children}
+    <div ref={setDropRef}>
+      <div
+        ref={setNodeRef}
+        className={cn(isDragging && "opacity-30")}
+        onClick={onOpen}
+      >
+        {children({ ref: setActivatorNodeRef, listeners, attributes })}
+      </div>
     </div>
   );
 }
@@ -495,11 +686,19 @@ function TaskLeaveWrapper({
   task,
   showDone,
   onSetDone,
+  shift,
+  animateShift,
   children,
 }: {
   task: TaskWithMeta;
   showDone: boolean;
   onSetDone: (taskId: string, done: boolean) => void;
+  /** Pixels to slide by while a reorder is previewed. */
+  shift: number;
+  /** Only while a task is in the air: on the drop, the DOM reorders and the
+   * offsets vanish in the same render, and animating that would slide every
+   * row back to where it already is. */
+  animateShift: boolean;
   children: (
     task: TaskWithMeta,
     toggleDone: (done: boolean) => void,
@@ -547,7 +746,14 @@ function TaskLeaveWrapper({
   );
 
   return (
-    <div ref={ref} className="overflow-hidden">
+    <div
+      ref={ref}
+      style={{ transform: shift ? `translateY(${shift}px)` : undefined }}
+      className={cn(
+        "overflow-hidden",
+        animateShift && "transition-transform duration-150",
+      )}
+    >
       <div className="pb-2">
         {/* eslint-disable-next-line react-hooks/refs -- toggleDone only touches refs when invoked as an event handler, not during render */}
         {children(localDone ? { ...task, done: true } : task, toggleDone)}
@@ -556,15 +762,29 @@ function TaskLeaveWrapper({
   );
 }
 
+/**
+ * The checkbox and the space around it. Clicking anywhere in that zone toggles
+ * the task, so the target is bigger than the 16px box; the checkbox itself
+ * still handles its own click (and keyboard), so only clicks on the padding
+ * are turned into toggles here.
+ */
 function DoneCheckbox({
   task,
   onToggleDone,
+  className,
 }: {
   task: TaskWithMeta;
   onToggleDone: (done: boolean) => void;
+  className?: string;
 }) {
   return (
-    <span onClick={(event) => event.stopPropagation()} className="flex">
+    <span
+      onClick={(event) => {
+        event.stopPropagation();
+        if (event.target === event.currentTarget) onToggleDone(!task.done);
+      }}
+      className={cn("flex cursor-pointer items-center", className)}
+    >
       <Checkbox
         checked={task.done}
         onCheckedChange={(checked) => onToggleDone(checked === true)}
@@ -578,8 +798,23 @@ function DoneCheckbox({
   );
 }
 
-function DeadlineChip({ task }: { task: TaskWithMeta }) {
-  if (!task.deadline) return null;
+function DeadlineChip({
+  task,
+  placeholder,
+}: {
+  task: TaskWithMeta;
+  /** Render "No date" instead of nothing, so the slot never collapses. */
+  placeholder?: boolean;
+}) {
+  if (!task.deadline) {
+    if (!placeholder) return null;
+    return (
+      <span className="flex items-center gap-1 text-xs whitespace-nowrap text-muted-foreground/50">
+        <CalendarClock className="size-3.5" />
+        No date
+      </span>
+    );
+  }
   const overdue = dueBucket(task) === "overdue" && !task.done;
   return (
     <span
@@ -618,20 +853,35 @@ function TaskRow({
   showProject,
   className,
   onToggleDone,
+  handle,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
   className?: string;
   onToggleDone: (done: boolean) => void;
+  /** Omitted on the drag overlay, which shows a static grip. */
+  handle?: DragHandleProps;
 }) {
   return (
     <div
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg border bg-background px-3 py-2.5 text-left hover:bg-muted/50",
+        "group/row flex w-full items-center gap-3 rounded-lg border bg-background py-3 pr-4 pl-1.5 text-left hover:bg-muted/50",
         className,
       )}
     >
-      <DoneCheckbox task={task} onToggleDone={onToggleDone} />
+      <DragHandle
+        handle={handle}
+        label={`Drag "${task.title}"`}
+        className={cn(!handle && "opacity-100")}
+      />
+      {/* Negative margins grow the click zone to the row's full height and
+          across the gaps on both sides; the left one also pulls the box
+          closer to the grip than the row's gap would. */}
+      <DoneCheckbox
+        task={task}
+        onToggleDone={onToggleDone}
+        className="-my-3 -ml-3 -mr-3 self-stretch py-3 pr-3 pl-1.5"
+      />
       <span
         className={cn(
           "min-w-0 flex-1 truncate text-sm",
@@ -657,45 +907,67 @@ function TaskRow({
   );
 }
 
+/**
+ * Kanban card. Every slot renders whether or not the task fills it — project
+ * top right, date bottom left, assignees bottom right — so cards in a column
+ * line up identically whatever data they carry.
+ */
 function TaskCard({
   task,
   showProject,
   className,
   onToggleDone,
+  handle,
 }: {
   task: TaskWithMeta;
   showProject: boolean;
   className?: string;
-  onToggleDone?: (done: boolean) => void;
+  onToggleDone: (done: boolean) => void;
+  /** Omitted on the drag overlay, which shows a static grip. */
+  handle?: DragHandleProps;
 }) {
   return (
     <div
       className={cn(
-        "flex items-start gap-2.5 rounded-lg border bg-background p-3 shadow-xs select-none",
+        "group/row flex items-start gap-2.5 rounded-lg border bg-background py-3.5 pr-4 pl-1.5 shadow-xs select-none",
         className,
       )}
     >
-      {onToggleDone ? (
-        <span className="mt-0.5 flex">
-          <DoneCheckbox task={task} onToggleDone={onToggleDone} />
-        </span>
-      ) : null}
+      <DragHandle
+        handle={handle}
+        label={`Drag "${task.title}"`}
+        className={cn("-my-0.5", !handle && "opacity-100")}
+      />
+      {/* Stretches the click zone down the card's left edge and across the
+          gaps on both sides. */}
+      <DoneCheckbox
+        task={task}
+        onToggleDone={onToggleDone}
+        className="-my-3.5 -ml-2.5 -mr-2.5 items-start self-stretch py-3.5 pr-2.5 pl-1.5 [&>*]:mt-0.5"
+      />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span
-          className={cn(
-            "text-sm font-medium",
-            task.done && "text-muted-foreground line-through",
-          )}
-        >
-          {task.title}
-        </span>
         <span className="flex items-center gap-2">
-          {showProject && task.projectName ? (
-            <Badge variant="outline" className="max-w-28">
-              <span className="truncate">{task.projectName}</span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm font-medium",
+              task.done && "text-muted-foreground line-through",
+            )}
+          >
+            {task.title}
+          </span>
+          {showProject ? (
+            <Badge
+              variant="outline"
+              className={cn("max-w-28", !task.projectName && "invisible")}
+            >
+              <span className="truncate">{task.projectName ?? "—"}</span>
             </Badge>
           ) : null}
-          <DeadlineChip task={task} />
+        </span>
+        {/* Fixed height: an avatar is taller than the date's text line, and
+            the card must not grow when someone is assigned. */}
+        <span className="flex h-5 items-center gap-2">
+          <DeadlineChip task={task} placeholder />
           <span className="ml-auto">
             <AvatarStack people={task.assignees} />
           </span>

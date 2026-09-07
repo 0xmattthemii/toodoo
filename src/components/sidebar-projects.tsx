@@ -1,4 +1,4 @@
-import { SidebarProjectLink } from "@/components/sidebar-project-link";
+import { SidebarProjectList } from "@/components/sidebar-project-list";
 import { getUserProjects } from "@/lib/data";
 
 export async function SidebarProjects({ userId }: { userId: string }) {
@@ -12,11 +12,5 @@ export async function SidebarProjects({ userId }: { userId: string }) {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-0.5 px-2">
-      {projects.map((project) => (
-        <SidebarProjectLink key={project.id} project={project} />
-      ))}
-    </div>
-  );
+  return <SidebarProjectList projects={projects} />;
 }

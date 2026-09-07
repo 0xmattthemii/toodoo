@@ -1,11 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { taskAssignees, tasks } from "@/db/schema";
-import { canAccessTask, requireMembership } from "@/lib/data";
+import {
+  canAccessTask,
+  getReorderableTasks,
+  nextTaskPosition,
+  requireMembership,
+} from "@/lib/data";
+import { positionSlots } from "@/lib/ordering";
 import { requireSession } from "@/lib/session";
 
 type TaskInput = {
@@ -34,6 +40,7 @@ export async function createTask(input: TaskInput) {
         description: input.description?.trim() || null,
         deadline: input.deadline ? new Date(input.deadline) : null,
         projectId: input.projectId || null,
+        position: nextTaskPosition(),
         createdBy: session.user.id,
       })
       .returning();
@@ -122,6 +129,50 @@ export async function moveTaskToProject(
     .update(tasks)
     .set({ projectId, updatedAt: new Date() })
     .where(eq(tasks.id, taskId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
+/** How many tasks one drag may renumber — a whole board group, with room. */
+const REORDER_LIMIT = 1000;
+
+/**
+ * Writes a manual order for one board group, given its task ids in their new
+ * order. The group's tasks swap around inside the position slots they already
+ * hold, so tasks outside the group keep their place in the overall order.
+ */
+export async function reorderTasks(orderedIds: string[]) {
+  const session = await requireSession();
+
+  const unique = new Set(orderedIds);
+  if (unique.size !== orderedIds.length) {
+    return { error: "The same task appears twice in the new order" };
+  }
+  if (orderedIds.length > REORDER_LIMIT) {
+    return { error: "That's too many tasks to reorder at once" };
+  }
+  if (orderedIds.length < 2) return { error: undefined };
+
+  const rows = await getReorderableTasks(orderedIds, session.user.id);
+  if (rows.length !== orderedIds.length) return { error: "Task not found" };
+
+  const slots = positionSlots(rows.map((row) => row.position));
+
+  // One statement: a per-task UPDATE would leave the group half-reordered if
+  // the request were cut short partway through.
+  await db
+    .update(tasks)
+    .set({
+      position: sql`case ${tasks.id} ${sql.join(
+        orderedIds.map(
+          (taskId, index) =>
+            sql`when ${taskId}::uuid then ${slots[index]}::double precision`,
+        ),
+        sql` `,
+      )} end`,
+    })
+    .where(inArray(tasks.id, orderedIds));
+
   revalidatePath("/", "layout");
   return { error: undefined };
 }

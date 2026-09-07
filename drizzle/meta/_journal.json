@@ -36,6 +36,13 @@
       "when": 1788276180464,
       "tag": "0004_oauth_resource_policy_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788772146531,
+      "tag": "0005_manual_ordering",
+      "breakpoints": true
     }
   ]
 }

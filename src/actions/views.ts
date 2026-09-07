@@ -7,20 +7,22 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { views } from "@/db/schema";
 import { requireSession } from "@/lib/session";
-import type { BoardConfig } from "@/lib/types";
+import {
+  FILTER_FIELDS,
+  GROUP_BY_VALUES,
+  SORT_BY_VALUES,
+  type BoardConfig,
+} from "@/lib/types";
 
 function sanitizeConfig(config: BoardConfig): BoardConfig {
   return {
     mode: config.mode === "kanban" ? "kanban" : "list",
-    groupBy: ["project", "assignee", "deadline", "none"].includes(
-      config.groupBy,
-    )
-      ? config.groupBy
-      : "none",
+    groupBy: GROUP_BY_VALUES.includes(config.groupBy) ? config.groupBy : "none",
+    sortBy: SORT_BY_VALUES.includes(config.sortBy) ? config.sortBy : "manual",
     filters: (config.filters ?? [])
       .filter(
         (filter) =>
-          ["assignee", "project", "deadline"].includes(filter.field) &&
+          FILTER_FIELDS.includes(filter.field) &&
           typeof filter.value === "string",
       )
       .slice(0, 20),

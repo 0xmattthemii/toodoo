@@ -39,7 +39,7 @@ export function ProjectHeaderSkeleton() {
       <Skeleton className="size-5 rounded" />
       <Skeleton className="h-5 w-40 rounded" />
       <span className="ml-auto flex items-center gap-2">
-        <Skeleton className="h-8 w-28 rounded-lg" />
+        <Skeleton className="h-8 w-34 rounded-lg" />
         <Skeleton className="size-8 rounded-lg" />
       </span>
     </div>
