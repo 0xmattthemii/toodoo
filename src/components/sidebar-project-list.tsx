@@ -1,23 +1,27 @@
 "use client";
 
-import { DragOverlay } from "@dnd-kit/core";
-import { Hash } from "lucide-react";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { DragOverlay, useDndMonitor } from "@dnd-kit/core";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { toast } from "sonner";
 
 import { reorderProjects } from "@/actions/projects";
-import { SidebarProjectLink } from "@/components/sidebar-project-link";
+import {
+  SidebarProjectLink,
+  SidebarProjectRow,
+} from "@/components/sidebar-project-link";
 import {
   sidebarProjectFromDropId,
   useTaskDnd,
 } from "@/components/task-dnd";
 import { tryAction } from "@/lib/action";
-import { AppearanceIcon } from "@/lib/appearance";
-import { moveItem } from "@/lib/ordering";
+import { moveItem, previewShifts, rowPitch } from "@/lib/ordering";
 import type { ProjectSummary } from "@/lib/types";
-
-/** One row's pitch: the link's h-8 plus the list's gap-0.5. */
-const ROW_STEP = 34;
 
 /**
  * The sidebar's project list, reorderable by dragging one row onto another.
@@ -32,6 +36,16 @@ export function SidebarProjectList({
   const { activeProjectId, overId, registerProjectDropHandler } = useTaskDnd();
   const [ordered, setOrdered] = useState(projects);
   const [, startTransition] = useTransition();
+  const container = useRef<HTMLDivElement>(null);
+  const [pitch, setPitch] = useState(0);
+
+  // Measured as a project drag starts, so a restyled row can't go stale.
+  useDndMonitor({
+    onDragStart(event) {
+      const data = event.active.data.current as { kind?: string } | undefined;
+      if (data?.kind === "project") setPitch(rowPitch(container.current));
+    },
+  });
 
   // The local order only bridges the gap between the drop and the revalidation.
   const [prevProjects, setPrevProjects] = useState(projects);
@@ -51,17 +65,16 @@ export function SidebarProjectList({
       const to = ids.indexOf(targetId);
       if (from === -1 || to === -1 || from === to) return;
 
-      const nextIds = moveItem(ids, from, to);
-      setOrdered(
-        nextIds.flatMap(
-          (id) => ordered.find((project) => project.id === id) ?? [],
-        ),
-      );
+      const next = moveItem(ordered, from, to);
+      setOrdered(next);
 
       startTransition(async () => {
-        const result = await tryAction(reorderProjects(nextIds), {
-          error: "Could not reorder your projects",
-        });
+        const result = await tryAction(
+          reorderProjects(next.map((project) => project.id)),
+          {
+            error: "Could not reorder your projects",
+          },
+        );
         if (result.error) {
           toast.error(result.error);
           setOrdered(projects);
@@ -76,27 +89,24 @@ export function SidebarProjectList({
     return () => registerProjectDropHandler(null);
   }, [registerProjectDropHandler, onDrop]);
 
-  // Preview the drop: the rows slide into the order the drop would produce,
-  // mirroring `onDrop`. The DOM order stays put and only transforms change,
-  // so the slide animates and no row remounts mid-drag. Rows all share one
-  // height, which is what lets an index difference become a pixel offset.
-  const overProjectId = overId ? sidebarProjectFromDropId(overId) : null;
-  const ids = ordered.map((project) => project.id);
-  const from = activeProjectId ? ids.indexOf(activeProjectId) : -1;
-  const to = overProjectId ? ids.indexOf(overProjectId) : -1;
-  const preview =
-    from !== -1 && to !== -1 && from !== to ? moveItem(ids, from, to) : ids;
+  // Preview the drop: the rows slide into the order `onDrop` would produce.
+  const shiftFor = previewShifts(
+    ordered.map((project) => project.id),
+    activeProjectId,
+    overId ? sidebarProjectFromDropId(overId) : null,
+    pitch,
+  );
   const activeProject = ordered.find(
     (project) => project.id === activeProjectId,
   );
 
   return (
-    <div className="flex flex-col gap-0.5 px-2">
+    <div ref={container} className="flex flex-col gap-0.5 px-2">
       {ordered.map((project, index) => (
         <SidebarProjectLink
           key={project.id}
           project={project}
-          shift={(preview.indexOf(project.id) - index) * ROW_STEP}
+          shift={shiftFor(project.id, index)}
         />
       ))}
       {/* The board mounts its own overlay for tasks; both stay mounted so the
@@ -117,15 +127,9 @@ export function SidebarProjectList({
         {activeProject ? (
           <div
             inert
-            className="pointer-events-none flex h-8 items-center gap-2 rounded-lg bg-background px-2 text-sm text-foreground shadow-lg ring-1 ring-border opacity-80"
+            className="pointer-events-none flex h-8 items-center gap-2 rounded-lg bg-background pr-6 pl-2 text-sm text-foreground shadow-lg ring-1 ring-border opacity-80"
           >
-            <AppearanceIcon
-              icon={activeProject.icon}
-              color={activeProject.color}
-              fallback={Hash}
-              className="size-4 shrink-0 text-muted-foreground"
-            />
-            <span className="truncate">{activeProject.name}</span>
+            <SidebarProjectRow project={activeProject} />
           </div>
         ) : null}
       </DragOverlay>

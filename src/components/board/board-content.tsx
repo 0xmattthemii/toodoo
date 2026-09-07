@@ -32,7 +32,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { tryAction } from "@/lib/action";
-import { moveItem, positionSlots } from "@/lib/ordering";
+import {
+  moveItem,
+  positionSlots,
+  previewShifts,
+  rowPitch,
+} from "@/lib/ordering";
 import { cn } from "@/lib/utils";
 import type {
   BoardFilter,
@@ -512,10 +517,7 @@ export function BoardContent({
 /**
  * One group's tasks: draggable, droppable, and previewing a reorder. While a
  * task from this group hovers another, the rows slide into the order the drop
- * would produce (mirroring `reorder`). The DOM order stays put and only
- * transforms change, so the slide animates and no row remounts mid-drag.
- * Every row in a group has the same height, which is what lets an index
- * difference become a pixel offset.
+ * would produce (see `previewShifts`, which mirrors `reorder`).
  */
 function GroupTasks({
   group,
@@ -538,27 +540,26 @@ function GroupTasks({
   const container = useRef<HTMLDivElement>(null);
   const [pitch, setPitch] = useState(0);
 
-  // Measured as the drag starts: a row's box, bottom gap included, is the
-  // distance between neighbours.
+  // Measured as a drag starts — only by the group the task came from, since
+  // a task can only be reordered within it.
   useDndMonitor({
-    onDragStart() {
-      const first = container.current?.firstElementChild;
-      setPitch(first instanceof HTMLElement ? first.offsetHeight : 0);
+    onDragStart(event) {
+      const data = event.active.data.current as
+        | { kind?: string; groupKey?: string }
+        | undefined;
+      if (data?.kind !== "task" || data.groupKey !== group.key) return;
+      setPitch(rowPitch(container.current));
     },
   });
 
-  const ids = group.tasks.map((task) => task.id);
+  const inGroup = activeGroupKey === group.key;
   const overTask = overId ? taskFromDropId(overId) : null;
-  const from =
-    activeTask && activeGroupKey === group.key
-      ? ids.indexOf(activeTask.id)
-      : -1;
-  const to =
-    overTask && overTask.groupKey === group.key
-      ? ids.indexOf(overTask.taskId)
-      : -1;
-  const preview =
-    from !== -1 && to !== -1 && from !== to ? moveItem(ids, from, to) : ids;
+  const shiftFor = previewShifts(
+    group.tasks.map((task) => task.id),
+    inGroup && activeTask ? activeTask.id : null,
+    inGroup && overTask?.groupKey === group.key ? overTask.taskId : null,
+    pitch,
+  );
 
   return (
     <div ref={container} className="flex flex-col">
@@ -568,7 +569,7 @@ function GroupTasks({
           task={task}
           showDone={showDone}
           onSetDone={onSetDone}
-          shift={(preview.indexOf(task.id) - index) * pitch}
+          shift={shiftFor(task.id, index)}
           animateShift={activeTask !== null}
         >
           {(displayTask, toggleDone) => (

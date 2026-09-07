@@ -14,6 +14,22 @@ import { AppearanceIcon } from "@/lib/appearance";
 import type { ProjectSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+/** What a project row shows: its icon and name. Shared with the drag overlay
+ * so the copy that follows the pointer is the row it lifted off. */
+export function SidebarProjectRow({ project }: { project: ProjectSummary }) {
+  return (
+    <>
+      <AppearanceIcon
+        icon={project.icon}
+        color={project.color}
+        fallback={Hash}
+        className="size-4 shrink-0 text-muted-foreground"
+      />
+      <span className="truncate">{project.name}</span>
+    </>
+  );
+}
+
 /**
  * Sidebar link that can be dragged to a new place in the list by its grip, and
  * that also accepts a task dragged from the board. The grip sits beside the
@@ -72,13 +88,7 @@ export function SidebarProjectLink({
             isTaskTarget && isOver && "bg-accent ring-2 ring-ring/40",
           )}
         >
-          <AppearanceIcon
-            icon={project.icon}
-            color={project.color}
-            fallback={Hash}
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-          <span className="truncate">{project.name}</span>
+          <SidebarProjectRow project={project} />
         </Link>
         <DragHandle
           handle={{ ref: setActivatorNodeRef, listeners, attributes }}

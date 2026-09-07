@@ -2,11 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { db } from "@/db";
 import { projectMembers, projects } from "@/db/schema";
-import { nextProjectMemberPosition, requireMembership } from "@/lib/data";
+import {
+  nextProjectMemberPosition,
+  positionCase,
+  requireMembership,
+} from "@/lib/data";
 import { requireSession } from "@/lib/session";
 
 export async function createProject(input: {
@@ -80,6 +84,7 @@ export async function updateProject(
  */
 export async function reorderProjects(orderedIds: string[]) {
   const session = await requireSession();
+  if (orderedIds.length < 2) return { error: undefined };
 
   const memberships = await db
     .select({ projectId: projectMembers.projectId })
@@ -99,13 +104,11 @@ export async function reorderProjects(orderedIds: string[]) {
   await db
     .update(projectMembers)
     .set({
-      position: sql`case ${projectMembers.projectId} ${sql.join(
-        orderedIds.map(
-          (projectId, index) =>
-            sql`when ${projectId}::uuid then ${index}::double precision`,
-        ),
-        sql` `,
-      )} end`,
+      position: positionCase(
+        projectMembers.projectId,
+        orderedIds,
+        orderedIds.map((_, index) => index),
+      ),
     })
     .where(
       and(

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import { db } from "@/db";
 import {
@@ -11,9 +12,7 @@ import {
   views,
 } from "@/db/schema";
 import {
-  FILTER_FIELDS,
-  GROUP_BY_VALUES,
-  SORT_BY_VALUES,
+  normalizeBoardConfig,
   type BoardConfig,
   type MemberWithUser,
   type PendingInvitation,
@@ -39,6 +38,26 @@ export function nextProjectMemberPosition(userId: string) {
  */
 export function nextTaskPosition() {
   return sql<number>`(select coalesce(min(${tasks.position}), 1) - 1 from ${tasks})`;
+}
+
+/**
+ * `case <column> when <id> then <position> … end`: renumbers many rows in one
+ * UPDATE, so a request cut short partway through can't leave a list
+ * half-reordered. `ids` and `positions` line up by index; callers guard
+ * against an empty list, which has no valid CASE.
+ */
+export function positionCase(
+  column: AnyPgColumn,
+  ids: string[],
+  positions: number[],
+) {
+  return sql`case ${column} ${sql.join(
+    ids.map(
+      (id, index) =>
+        sql`when ${id}::uuid then ${positions[index]}::double precision`,
+    ),
+    sql` `,
+  )} end`;
 }
 
 export async function getUserProjects(
@@ -295,19 +314,6 @@ export async function canAccessTask(taskId: string, userId: string) {
   return null;
 }
 
-/** Drops config parts from older app versions (e.g. the removed status field). */
-function normalizeConfig(config: BoardConfig): BoardConfig {
-  return {
-    mode: config.mode === "kanban" ? "kanban" : "list",
-    groupBy: GROUP_BY_VALUES.includes(config.groupBy) ? config.groupBy : "none",
-    // Views saved before sorting existed carry no sortBy.
-    sortBy: SORT_BY_VALUES.includes(config.sortBy) ? config.sortBy : "manual",
-    filters: (config.filters ?? []).filter((filter) =>
-      FILTER_FIELDS.includes(filter.field),
-    ),
-  };
-}
-
 export async function getUserViews(userId: string): Promise<ViewSummary[]> {
   const rows = await db
     .select()
@@ -319,7 +325,7 @@ export async function getUserViews(userId: string): Promise<ViewSummary[]> {
     name: row.name,
     icon: row.icon,
     color: row.color,
-    config: normalizeConfig(row.config as BoardConfig),
+    config: normalizeBoardConfig(row.config as BoardConfig),
   }));
 }
 
@@ -337,7 +343,7 @@ export async function getView(
     name: row.name,
     icon: row.icon,
     color: row.color,
-    config: normalizeConfig(row.config as BoardConfig),
+    config: normalizeBoardConfig(row.config as BoardConfig),
   };
 }
 

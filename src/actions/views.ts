@@ -7,27 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { views } from "@/db/schema";
 import { requireSession } from "@/lib/session";
-import {
-  FILTER_FIELDS,
-  GROUP_BY_VALUES,
-  SORT_BY_VALUES,
-  type BoardConfig,
-} from "@/lib/types";
-
-function sanitizeConfig(config: BoardConfig): BoardConfig {
-  return {
-    mode: config.mode === "kanban" ? "kanban" : "list",
-    groupBy: GROUP_BY_VALUES.includes(config.groupBy) ? config.groupBy : "none",
-    sortBy: SORT_BY_VALUES.includes(config.sortBy) ? config.sortBy : "manual",
-    filters: (config.filters ?? [])
-      .filter(
-        (filter) =>
-          FILTER_FIELDS.includes(filter.field) &&
-          typeof filter.value === "string",
-      )
-      .slice(0, 20),
-  };
-}
+import { normalizeBoardConfig, type BoardConfig } from "@/lib/types";
 
 export async function createView(input: {
   name: string;
@@ -46,7 +26,7 @@ export async function createView(input: {
       icon: input.icon || null,
       color: input.color || null,
       ownerId: session.user.id,
-      config: sanitizeConfig(input.config),
+      config: normalizeBoardConfig(input.config),
     })
     .returning();
 
@@ -73,7 +53,9 @@ export async function updateView(
   }
   if (input.icon !== undefined) patch.icon = input.icon || null;
   if (input.color !== undefined) patch.color = input.color || null;
-  if (input.config !== undefined) patch.config = sanitizeConfig(input.config);
+  if (input.config !== undefined) {
+    patch.config = normalizeBoardConfig(input.config);
+  }
 
   const updated = await db
     .update(views)

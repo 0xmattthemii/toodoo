@@ -11,6 +11,40 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
+/**
+ * How far each row of a list should slide to preview a drop: the item being
+ * dragged lands where the one it hovers sits (`moveItem`, the same rule the
+ * drop applies) and the rows in between shift by one place. Rows keep their
+ * DOM order and only transform, so the slide animates and nothing remounts
+ * mid-drag. Every row must share one height, `pitch` — that is what lets an
+ * index difference become a pixel offset.
+ */
+export function previewShifts(
+  ids: string[],
+  activeId: string | null,
+  overId: string | null,
+  pitch: number,
+): (id: string, index: number) => number {
+  const from = activeId ? ids.indexOf(activeId) : -1;
+  const to = overId ? ids.indexOf(overId) : -1;
+  if (from === -1 || to === -1 || from === to || pitch === 0) return () => 0;
+  const target = new Map(
+    moveItem(ids, from, to).map((id, index) => [id, index] as const),
+  );
+  return (id, index) => ((target.get(id) ?? index) - index) * pitch;
+}
+
+/**
+ * The distance between two neighbouring rows of `container`, gap included.
+ * Zero when there is nothing to measure — a single row cannot be reordered.
+ */
+export function rowPitch(container: HTMLElement | null) {
+  const [first, second] = container ? Array.from(container.children) : [];
+  return first instanceof HTMLElement && second instanceof HTMLElement
+    ? second.offsetTop - first.offsetTop
+    : 0;
+}
+
 /** Smallest step used to break a tie between two identical positions. */
 const STEP = 1e-6;
 

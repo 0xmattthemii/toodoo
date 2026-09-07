@@ -82,6 +82,31 @@ export const DEFAULT_BOARD_CONFIG: BoardConfig = {
   filters: [],
 };
 
+/** Enough for any real board; also caps what a saved view can carry. */
+const MAX_FILTERS = 20;
+
+/**
+ * Coerces a stored or submitted config to the current shape: unknown values
+ * fall back to their defaults and fields from older app versions are dropped.
+ * Used on both the write path (saving a view) and the read path (loading one),
+ * so a view always loads back the way it was saved.
+ */
+export function normalizeBoardConfig(config: BoardConfig): BoardConfig {
+  return {
+    mode: config.mode === "kanban" ? "kanban" : "list",
+    groupBy: GROUP_BY_VALUES.includes(config.groupBy) ? config.groupBy : "none",
+    // Views saved before sorting existed carry no sortBy.
+    sortBy: SORT_BY_VALUES.includes(config.sortBy) ? config.sortBy : "manual",
+    filters: (config.filters ?? [])
+      .filter(
+        (filter) =>
+          FILTER_FIELDS.includes(filter.field) &&
+          typeof filter.value === "string",
+      )
+      .slice(0, MAX_FILTERS),
+  };
+}
+
 export type ViewSummary = {
   id: string;
   name: string;

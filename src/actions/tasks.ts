@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "@/db";
 import { taskAssignees, tasks } from "@/db/schema";
@@ -9,6 +9,7 @@ import {
   canAccessTask,
   getReorderableTasks,
   nextTaskPosition,
+  positionCase,
   requireMembership,
 } from "@/lib/data";
 import { positionSlots } from "@/lib/ordering";
@@ -158,19 +159,9 @@ export async function reorderTasks(orderedIds: string[]) {
 
   const slots = positionSlots(rows.map((row) => row.position));
 
-  // One statement: a per-task UPDATE would leave the group half-reordered if
-  // the request were cut short partway through.
   await db
     .update(tasks)
-    .set({
-      position: sql`case ${tasks.id} ${sql.join(
-        orderedIds.map(
-          (taskId, index) =>
-            sql`when ${taskId}::uuid then ${slots[index]}::double precision`,
-        ),
-        sql` `,
-      )} end`,
-    })
+    .set({ position: positionCase(tasks.id, orderedIds, slots) })
     .where(inArray(tasks.id, orderedIds));
 
   revalidatePath("/", "layout");
