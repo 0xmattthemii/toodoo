@@ -1,5 +1,9 @@
 name: Desktop build
 
+# Runs for a `desktop-v*` tag — pushed by hand or by the Desktop release
+# workflow, which starts this one with `workflow_dispatch` on the tag (a tag
+# pushed with GITHUB_TOKEN can't trigger it directly). A `workflow_dispatch`
+# on a branch just builds, without a release.
 on:
   push:
     tags:
@@ -126,3 +130,24 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           retryAttempts: 3
+
+  # Both installers built: publish the draft and point the updater at it.
+  # The manifest workflow is started explicitly because a release published
+  # with GITHUB_TOKEN doesn't fire its `release: published` trigger. If a
+  # build failed the draft stays for inspection and nothing reaches users.
+  publish:
+    needs: [create-release, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Publish the release
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: Refresh the updater manifest
+        run: gh workflow run desktop-updater-manifest.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"

@@ -3,10 +3,11 @@
 //
 //   pnpm --dir desktop release patch|minor|major|<x.y.z> [--no-git]
 //
-// Pushing the tag (git push --follow-tags) triggers the desktop release
-// workflow, which builds, signs updater artifacts, and drafts a GitHub
-// release. Publishing that release makes the update live for existing
-// installs via the `updater` release's latest.json.
+// Normally run by .github/workflows/desktop-release.yml after a desktop
+// change lands on main. Run by hand, pushing the tag (git push
+// --follow-tags) triggers the desktop build workflow, which builds, signs
+// updater artifacts, publishes the GitHub release and updates the `updater`
+// release's latest.json that existing installs poll.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
