@@ -34,7 +34,7 @@ export async function inviteToProject(
   }
 
   const [existing] = await db
-    .select({ id: user.id })
+    .select({ id: user.id, name: user.name, email: user.email, image: user.image })
     .from(user)
     .where(eq(user.email, normalized));
 
@@ -63,7 +63,7 @@ export async function inviteToProject(
       console.error("[email] failed to send member-added email", error);
     }
     revalidatePath("/", "layout");
-    return { added: true as const };
+    return { added: true as const, member: { ...existing, role } };
   }
 
   const inserted = await db
@@ -87,7 +87,17 @@ export async function inviteToProject(
     console.error("[email] failed to send invitation email", error);
   }
   revalidatePath("/", "layout");
-  return { invited: true as const };
+  const [invitation] = inserted;
+  return {
+    invited: true as const,
+    invitation: {
+      id: invitation.id,
+      projectId,
+      email: invitation.email,
+      role: invitation.role,
+      createdAt: invitation.createdAt,
+    },
+  };
 }
 
 export async function revokeInvitation(

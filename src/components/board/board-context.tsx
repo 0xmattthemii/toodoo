@@ -25,9 +25,8 @@ type BoardContextValue = {
   addFilter: (filter: BoardFilter) => void;
   removeFilter: (filter: BoardFilter) => void;
 
-  /** Dropdown options, registered by the board content once its data arrives. */
+  /** Dropdown options for filters and the task dialog. */
   options: BoardOptions;
-  registerOptions: (options: BoardOptions) => void;
 
   currentUserId: string;
   scopedProjectId?: string;
@@ -77,20 +76,18 @@ export function BoardProvider({
   scopedProjectId,
   viewId,
   initialConfig,
+  options,
 }: {
   children: React.ReactNode;
   currentUserId: string;
   scopedProjectId?: string;
   viewId?: string;
   initialConfig?: BoardConfig;
+  options: BoardOptions;
 }) {
   const initial = initialConfig ?? DEFAULT_BOARD_CONFIG;
   const [config, setConfig] = useState<BoardConfig>(initial);
   const [baseline, setBaseline] = useState(() => normalize(initial));
-  const [options, setOptions] = useState<BoardOptions>({
-    projects: [],
-    people: [],
-  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTask, setDialogTask] = useState<TaskWithMeta | null>(null);
   const [showDone, setShowDone] = useState(false);
@@ -143,10 +140,6 @@ export function BoardProvider({
     [],
   );
 
-  const registerOptions = useCallback((next: BoardOptions) => {
-    setOptions(next);
-  }, []);
-
   const markSaved = useCallback(
     () => setBaseline(normalize(config)),
     [config],
@@ -169,7 +162,6 @@ export function BoardProvider({
       addFilter,
       removeFilter,
       options,
-      registerOptions,
       currentUserId,
       scopedProjectId,
       viewId,
@@ -190,7 +182,6 @@ export function BoardProvider({
       addFilter,
       removeFilter,
       options,
-      registerOptions,
       currentUserId,
       scopedProjectId,
       viewId,

@@ -1,14 +1,13 @@
 "use client";
 
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { unstable_rethrow } from "next/navigation";
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { startTransition, useState } from "react";
 
 import { deleteProject, updateProject } from "@/actions/projects";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { IconColorPicker } from "@/components/icon-color-picker";
-import { LoadingButton } from "@/components/loading-button";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,7 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { tryAction } from "@/lib/action";
+import { patchProject, removeProject } from "@/lib/workspace";
 
 export function ProjectActions({
   project,
@@ -41,12 +40,12 @@ export function ProjectActions({
     color: string | null;
   };
 }) {
+  const router = useRouter();
+  const { mutate } = useWorkspace();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [icon, setIcon] = useState<string | null>(project.icon);
   const [color, setColor] = useState<string | null>(project.color);
-  const [pending, startTransition] = useTransition();
-  const [deleting, startDeleteTransition] = useTransition();
 
   // Re-seed appearance from the project each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(false);
@@ -61,33 +60,35 @@ export function ProjectActions({
   function onSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    startTransition(async () => {
-      const result = await tryAction(
-        updateProject(project.id, {
-          name: String(form.get("name")),
-          description: String(form.get("description")),
-          icon,
-          color,
-        }),
-        { error: "Could not save the project" },
-      );
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      setEditOpen(false);
+    const name = String(form.get("name")).trim();
+    const description = String(form.get("description")).trim();
+    if (!name) return;
+    void mutate({
+      optimistic: patchProject(project.id, {
+        name,
+        description: description || null,
+        icon,
+        color,
+      }),
+      action: () =>
+        updateProject(project.id, { name, description, icon, color }),
+      failure: "Could not save the project",
+      retry: true,
     });
+    setEditOpen(false);
   }
 
   function onDelete() {
-    startDeleteTransition(async () => {
-      try {
-        // Redirects on success, which unmounts this component.
-        await deleteProject(project.id);
-      } catch (error) {
-        unstable_rethrow(error);
-        toast.error("Couldn't delete the project. Please try again.");
-      }
+    setDeleteOpen(false);
+    // One transition: the navigation home and the project leaving the
+    // sidebar commit together, so its page never shows "not found".
+    startTransition(() => {
+      router.push("/");
+      void mutate({
+        optimistic: removeProject(project.id),
+        action: () => deleteProject(project.id),
+        failure: "Could not delete the project",
+      });
     });
   }
 
@@ -140,7 +141,6 @@ export function ProjectActions({
         }
         confirmLabel="Delete project"
         destructive
-        loading={deleting}
         onConfirm={onDelete}
       />
 
@@ -185,9 +185,7 @@ export function ProjectActions({
               >
                 Cancel
               </Button>
-              <LoadingButton type="submit" loading={pending}>
-                Save
-              </LoadingButton>
+              <Button type="submit">Save</Button>
             </DialogFooter>
           </form>
         </DialogContent>
