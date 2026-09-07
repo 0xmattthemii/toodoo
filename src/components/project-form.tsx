@@ -11,6 +11,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { tryAction } from "@/lib/action";
 import type { ProjectSummary } from "@/lib/types";
 
 /**
@@ -38,7 +39,10 @@ export function ProjectForm({
     const name = String(form.get("name"));
     const description = String(form.get("description"));
     startTransition(async () => {
-      const result = await createProject({ name, description, icon, color });
+      const result = await tryAction(
+        createProject({ name, description, icon, color }),
+        { error: "Could not create the project" },
+      );
       if (result.error || !result.projectId) {
         toast.error(result.error ?? "Could not create the project");
         return;
