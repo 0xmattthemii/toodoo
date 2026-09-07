@@ -39,12 +39,13 @@ export function ProjectForm({
     const name = String(form.get("name"));
     const description = String(form.get("description"));
     startTransition(async () => {
+      const failed = "Could not create the project";
       const result = await tryAction(
         createProject({ name, description, icon, color }),
-        { error: "Could not create the project" },
+        { error: failed },
       );
       if (result.error || !result.projectId) {
-        toast.error(result.error ?? "Could not create the project");
+        toast.error(result.error ?? failed);
         return;
       }
       // Whoever creates a project is its admin.

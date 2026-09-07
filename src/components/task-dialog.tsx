@@ -164,7 +164,7 @@ export function TaskDialog({
     startTransition(async () => {
       const result = await tryAction(
         task ? updateTask(task.id, input) : createTask(input),
-        { error: task ? "Could not save the task" : "Could not create the task" },
+        { error: "Could not save the task" },
       );
       if (result.error) {
         toast.error(result.error);

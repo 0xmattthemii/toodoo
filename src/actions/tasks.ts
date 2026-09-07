@@ -25,24 +25,26 @@ export async function createTask(input: TaskInput) {
     await requireMembership(input.projectId, session.user.id);
   }
 
-  const [task] = await db
-    .insert(tasks)
-    .values({
-      title,
-      description: input.description?.trim() || null,
-      deadline: input.deadline ? new Date(input.deadline) : null,
-      projectId: input.projectId || null,
-      createdBy: session.user.id,
-    })
-    .returning();
-
   const assigneeIds = [...new Set(input.assigneeIds ?? [])];
-  if (assigneeIds.length > 0) {
-    await db
-      .insert(taskAssignees)
-      .values(assigneeIds.map((userId) => ({ taskId: task.id, userId })))
-      .onConflictDoNothing();
-  }
+  const task = await db.transaction(async (tx) => {
+    const [task] = await tx
+      .insert(tasks)
+      .values({
+        title,
+        description: input.description?.trim() || null,
+        deadline: input.deadline ? new Date(input.deadline) : null,
+        projectId: input.projectId || null,
+        createdBy: session.user.id,
+      })
+      .returning();
+    if (assigneeIds.length > 0) {
+      await tx
+        .insert(taskAssignees)
+        .values(assigneeIds.map((userId) => ({ taskId: task.id, userId })))
+        .onConflictDoNothing();
+    }
+    return task;
+  });
 
   revalidatePath("/", "layout");
   return { taskId: task.id };
@@ -61,27 +63,31 @@ export async function updateTask(taskId: string, input: TaskInput) {
     await requireMembership(nextProjectId, session.user.id);
   }
 
-  await db
-    .update(tasks)
-    .set({
-      title,
-      description: input.description?.trim() || null,
-      deadline: input.deadline ? new Date(input.deadline) : null,
-      projectId: nextProjectId,
-      updatedAt: new Date(),
-    })
-    .where(eq(tasks.id, taskId));
+  // Replacing the assignees is a delete followed by an insert; without a
+  // transaction a failure between the two silently unassigns the task.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tasks)
+      .set({
+        title,
+        description: input.description?.trim() || null,
+        deadline: input.deadline ? new Date(input.deadline) : null,
+        projectId: nextProjectId,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId));
 
-  if (input.assigneeIds) {
-    const assigneeIds = [...new Set(input.assigneeIds)];
-    await db.delete(taskAssignees).where(eq(taskAssignees.taskId, taskId));
-    if (assigneeIds.length > 0) {
-      await db
-        .insert(taskAssignees)
-        .values(assigneeIds.map((userId) => ({ taskId, userId })))
-        .onConflictDoNothing();
+    if (input.assigneeIds) {
+      const assigneeIds = [...new Set(input.assigneeIds)];
+      await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, taskId));
+      if (assigneeIds.length > 0) {
+        await tx
+          .insert(taskAssignees)
+          .values(assigneeIds.map((userId) => ({ taskId, userId })))
+          .onConflictDoNothing();
+      }
     }
-  }
+  });
 
   revalidatePath("/", "layout");
   return { error: undefined };
