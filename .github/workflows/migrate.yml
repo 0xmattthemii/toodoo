@@ -1,0 +1,42 @@
+name: Database migrations
+
+# Applies pending drizzle migrations to the production database whenever a
+# push to main touches them, so a deploy never runs ahead of its schema.
+# Vercel deploys the same push in parallel; migrations here are additive
+# (new columns with defaults, backfills), so either order is safe.
+#
+# Requires the DATABASE_URL secret: a connection string for a role that owns
+# the schema (Neon's `neondb_owner`, or the role in DATABASE_URL on Vercel).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "drizzle/**"
+      - "drizzle.config.ts"
+      - ".github/workflows/migrate.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply pending migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm drizzle-kit migrate
