@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { taskAssignees, tasks } from "@/db/schema";
 import { canAccessTask, requireMembership } from "@/lib/data";
+import { isValidId } from "@/lib/ids";
 import { requireSession } from "@/lib/session";
 
 type TaskInput = {
@@ -16,10 +17,13 @@ type TaskInput = {
   assigneeIds?: string[];
 };
 
-export async function createTask(input: TaskInput) {
+export async function createTask(input: TaskInput & { id?: string }) {
   const session = await requireSession();
   const title = input.title.trim();
   if (!title) return { error: "Task title is required" };
+  if (input.id !== undefined && !isValidId(input.id)) {
+    return { error: "Invalid task id" };
+  }
 
   if (input.projectId) {
     await requireMembership(input.projectId, session.user.id);
@@ -30,6 +34,7 @@ export async function createTask(input: TaskInput) {
     const [task] = await tx
       .insert(tasks)
       .values({
+        id: input.id,
         title,
         description: input.description?.trim() || null,
         deadline: input.deadline ? new Date(input.deadline) : null,

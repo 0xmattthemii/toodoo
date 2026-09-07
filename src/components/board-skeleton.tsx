@@ -1,9 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-/**
- * Placeholder for the task area only — the toolbar and page chrome are
- * static and always render immediately.
- */
+/** Placeholder for a board's task area, shown only on a full page load. */
 export function BoardContentSkeleton() {
   return (
     <div className="flex flex-col gap-6 px-6 pt-4 pb-6" aria-hidden>
@@ -33,19 +30,27 @@ export function BoardContentSkeleton() {
   );
 }
 
-export function ProjectHeaderSkeleton() {
+/** Placeholder for a board's title row and toolbar. */
+export function BoardHeaderSkeleton() {
   return (
-    <div
-      data-tauri-drag-region="deep"
-      className="flex h-14 shrink-0 items-center gap-3 px-6"
-      aria-hidden
-    >
-      <Skeleton className="size-5 rounded" />
-      <Skeleton className="h-5 w-40 rounded" />
-      <span className="ml-auto flex items-center gap-2">
+    <div aria-hidden>
+      <div
+        data-tauri-drag-region="deep"
+        className="flex h-14 shrink-0 items-center gap-3 px-6"
+      >
+        <Skeleton className="size-5 rounded" />
+        <Skeleton className="h-5 w-40 rounded" />
+      </div>
+      <div className="flex items-center gap-2 px-6">
+        <Skeleton className="h-8 w-36 rounded-lg" />
+        <Skeleton className="h-8 w-32 rounded-lg" />
         <Skeleton className="h-8 w-28 rounded-lg" />
-        <Skeleton className="size-8 rounded-lg" />
-      </span>
+        <span className="ml-auto flex items-center gap-2">
+          <Skeleton className="h-8 w-24 rounded-lg" />
+          <Skeleton className="h-8 w-28 rounded-lg" />
+        </span>
+      </div>
+      <div className="min-h-7 px-6 pt-2" />
     </div>
   );
 }

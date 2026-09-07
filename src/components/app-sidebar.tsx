@@ -1,8 +1,8 @@
 import { Inbox } from "lucide-react";
-import Link from "next/link";
 
 import { NavUser } from "@/components/nav-user";
 import { ProjectDialog } from "@/components/project-dialog";
+import { SidebarLink } from "@/components/sidebar-link";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function SidebarListSkeleton() {
@@ -23,12 +23,15 @@ export function AppSidebar({
   googleEnabled,
   projects,
   views,
+  newProject = <ProjectDialog />,
 }: {
   user: { name: string; email: string; image: string | null };
   /** Whether "Continue with Google" is configured on this deployment. */
   googleEnabled: boolean;
   projects: React.ReactNode;
   views: React.ReactNode;
+  /** The "+" next to the Projects heading; the loading shell passes a disabled one. */
+  newProject?: React.ReactNode;
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-muted/30">
@@ -43,13 +46,10 @@ export function AppSidebar({
       </div>
 
       <nav className="flex flex-col gap-1 px-2 py-2">
-        <Link
-          href="/"
-          className="flex h-8 items-center gap-2 rounded-lg px-2 text-sm font-medium text-foreground hover:bg-accent"
-        >
+        <SidebarLink href="/" className="font-medium">
           <Inbox className="size-4 text-muted-foreground" />
           All tasks
-        </Link>
+        </SidebarLink>
       </nav>
 
       {/* pt-2 rather than all of the offset as mt: overflow-y-auto makes
@@ -61,7 +61,7 @@ export function AppSidebar({
             <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Projects
             </span>
-            <ProjectDialog />
+            {newProject}
           </div>
           {projects}
         </div>

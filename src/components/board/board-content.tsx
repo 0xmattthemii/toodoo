@@ -3,15 +3,7 @@
 import { DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
 import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { moveTaskToProject, setTaskDone } from "@/actions/tasks";
 import { useBoard } from "@/components/board/board-context";
@@ -20,11 +12,12 @@ import {
   useTaskDnd,
 } from "@/components/task-dnd";
 import { UserAvatar } from "@/components/user-avatar";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { tryAction } from "@/lib/action";
 import { cn } from "@/lib/utils";
+import { patchTask } from "@/lib/workspace";
 import type {
   BoardFilter,
   Person,
@@ -91,42 +84,25 @@ export function BoardContent({
   dialogProjects?: ProjectSummary[];
 }) {
   const board = useBoard();
-  const { config, currentUserId, scopedProjectId, registerOptions, showDone } =
-    board;
+  const { config, currentUserId, scopedProjectId, showDone } = board;
+  const { mutate } = useWorkspace();
 
   const projectOptions = dialogProjects ?? projects;
 
-  // Feed dropdown options (filter values, task dialog selects) to the toolbar.
-  useEffect(() => {
-    registerOptions({ projects: projectOptions, people });
-  }, [registerOptions, projectOptions, people]);
-
-  const [taskOverrides, setTaskOverrides] = useState<
-    Record<string, Partial<TaskWithMeta>>
-  >({});
   const { activeTask, registerDropHandler } = useTaskDnd();
   const justDragged = useRef(false);
-  const [, startTransition] = useTransition();
 
-  // Reset optimistic overrides once fresh server data arrives.
-  const [prevTasks, setPrevTasks] = useState(tasks);
-  if (prevTasks !== tasks) {
-    setPrevTasks(tasks);
-    setTaskOverrides({});
-  }
-
-  const filteredTasks = useMemo(() => {
-    const effective = tasks.map((task) =>
-      taskOverrides[task.id] ? { ...task, ...taskOverrides[task.id] } : task,
-    );
-    return effective.filter(
-      (task) =>
-        (showDone || !task.done) &&
-        config.filters.every((filter) =>
-          matchesFilter(task, filter, currentUserId),
-        ),
-    );
-  }, [tasks, taskOverrides, config.filters, currentUserId, showDone]);
+  const filteredTasks = useMemo(
+    () =>
+      tasks.filter(
+        (task) =>
+          (showDone || !task.done) &&
+          config.filters.every((filter) =>
+            matchesFilter(task, filter, currentUserId),
+          ),
+      ),
+    [tasks, config.filters, currentUserId, showDone],
+  );
 
   const groups = useMemo<Group[]>(() => {
     const list = filteredTasks;
@@ -177,29 +153,18 @@ export function BoardContent({
     }
   }, [filteredTasks, config.groupBy, projects, people, scopedProjectId]);
 
-  const revertOverride = useCallback((taskId: string) => {
-    setTaskOverrides((current) => {
-      const next = { ...current };
-      delete next[taskId];
-      return next;
-    });
-  }, []);
-
-  function changeDone(taskId: string, done: boolean) {
-    setTaskOverrides((current) => ({
-      ...current,
-      [taskId]: { ...current[taskId], done },
-    }));
-    startTransition(async () => {
-      const result = await tryAction(setTaskDone(taskId, done), {
-        error: "Could not update the task",
+  // Both changes show at once and are undone (with a toast) if the server
+  // refuses them.
+  const changeDone = useCallback(
+    (taskId: string, done: boolean) => {
+      void mutate({
+        optimistic: patchTask(taskId, { done }),
+        action: () => setTaskDone(taskId, done),
+        failure: "Could not update the task",
       });
-      if (result.error) {
-        toast.error(result.error);
-        revertOverride(taskId);
-      }
-    });
-  }
+    },
+    [mutate],
+  );
 
   const moveProject = useCallback(
     (taskId: string, projectId: string | null) => {
@@ -207,21 +172,13 @@ export function BoardContent({
         ? (projectOptions.find((project) => project.id === projectId)?.name ??
           null)
         : null;
-      setTaskOverrides((current) => ({
-        ...current,
-        [taskId]: { ...current[taskId], projectId, projectName },
-      }));
-      startTransition(async () => {
-        const result = await tryAction(moveTaskToProject(taskId, projectId), {
-          error: "Could not move the task",
-        });
-        if (result.error) {
-          toast.error(result.error);
-          revertOverride(taskId);
-        }
+      void mutate({
+        optimistic: patchTask(taskId, { projectId, projectName }),
+        action: () => moveTaskToProject(taskId, projectId),
+        failure: "Could not move the task",
       });
     },
-    [projectOptions, revertOverride, startTransition],
+    [projectOptions, mutate],
   );
 
   function openEdit(task: TaskWithMeta) {

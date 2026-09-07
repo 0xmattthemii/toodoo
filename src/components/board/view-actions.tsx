@@ -1,13 +1,13 @@
 "use client";
 
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { unstable_rethrow } from "next/navigation";
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { startTransition, useState } from "react";
 
 import { deleteView } from "@/actions/views";
 import { ViewDialog } from "@/components/board/view-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,25 +16,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { removeView } from "@/lib/workspace";
 
 export function ViewActions({
   view,
 }: {
   view: { id: string; name: string; icon: string | null; color: string | null };
 }) {
+  const router = useRouter();
+  const { mutate } = useWorkspace();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
 
   function onDelete() {
-    startTransition(async () => {
-      try {
-        // Redirects on success, which unmounts this component.
-        await deleteView(view.id);
-      } catch (error) {
-        unstable_rethrow(error);
-        toast.error("Couldn't delete the view. Please try again.");
-      }
+    setDeleteOpen(false);
+    // One transition: the navigation home and the view leaving the sidebar
+    // commit together, so its page never shows "not found".
+    startTransition(() => {
+      router.push("/");
+      void mutate({
+        optimistic: removeView(view.id),
+        action: () => deleteView(view.id),
+        failure: "Could not delete the view",
+      });
     });
   }
 
@@ -80,7 +84,6 @@ export function ViewActions({
         }
         confirmLabel="Delete view"
         destructive
-        loading={pending}
         onConfirm={onDelete}
       />
       <ViewDialog view={view} open={editOpen} onOpenChange={setEditOpen} />

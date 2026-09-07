@@ -1,18 +1,18 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useId, useState } from "react";
 
 import { createProject } from "@/actions/projects";
 import { IconColorPicker } from "@/components/icon-color-picker";
-import { LoadingButton } from "@/components/loading-button";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { tryAction } from "@/lib/action";
+import { newId } from "@/lib/ids";
 import type { ProjectSummary } from "@/lib/types";
+import { addProject } from "@/lib/workspace";
 
 /**
  * The new-project fields, shared by the sidebar's dialog and the one nested in
@@ -29,35 +29,35 @@ export function ProjectForm({
   // Both this form and the one nested in the task dialog can be mounted at
   // once, so the field ids have to be per-instance.
   const fieldId = useId();
+  const { me, mutate } = useWorkspace();
   const [icon, setIcon] = useState<string | null>(null);
   const [color, setColor] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
 
+  // The project exists on screen (sidebar, selects, its own page) as soon as
+  // the form is submitted; the server is told in the background.
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const name = String(form.get("name"));
-    const description = String(form.get("description"));
-    startTransition(async () => {
-      const failed = "Could not create the project";
-      const result = await tryAction(
-        createProject({ name, description, icon, color }),
-        { error: failed },
-      );
-      if (result.error || !result.projectId) {
-        toast.error(result.error ?? failed);
-        return;
-      }
-      // Whoever creates a project is its admin.
-      onCreated({
-        id: result.projectId,
-        name: name.trim(),
-        description: description.trim() || null,
-        icon,
-        color,
-        role: "admin",
-      });
+    const name = String(form.get("name")).trim();
+    const description = String(form.get("description")).trim();
+    if (!name) return;
+    // Whoever creates a project is its admin.
+    const project: ProjectSummary = {
+      id: newId(),
+      name,
+      description: description || null,
+      icon,
+      color,
+      role: "admin",
+    };
+    void mutate({
+      optimistic: addProject(project, me),
+      action: () =>
+        createProject({ id: project.id, name, description, icon, color }),
+      failure: "Could not create the project",
+      retry: true,
     });
+    onCreated(project);
   }
 
   return (
@@ -91,9 +91,7 @@ export function ProjectForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <LoadingButton type="submit" loading={pending}>
-          Create project
-        </LoadingButton>
+        <Button type="submit">Create project</Button>
       </DialogFooter>
     </form>
   );
