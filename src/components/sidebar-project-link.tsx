@@ -2,8 +2,8 @@
 
 import { useDroppable } from "@dnd-kit/core";
 import { Hash } from "lucide-react";
-import Link from "next/link";
 
+import { SidebarLink } from "@/components/sidebar-link";
 import {
   sidebarProjectDropId,
   useTaskDnd,
@@ -25,11 +25,11 @@ export function SidebarProjectLink({ project }: { project: ProjectSummary }) {
   const isTarget = activeTask !== null && activeTask.projectId !== project.id;
 
   return (
-    <Link
+    <SidebarLink
       ref={setNodeRef}
       href={`/projects/${project.id}`}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-lg px-2 text-sm text-foreground transition-all duration-150 hover:bg-accent",
+        "transition-all",
         isTarget && "ring-1 ring-border",
         isTarget && isOver && "bg-accent ring-2 ring-ring/40",
       )}
@@ -41,6 +41,6 @@ export function SidebarProjectLink({ project }: { project: ProjectSummary }) {
         className="size-4 shrink-0 text-muted-foreground"
       />
       <span className="truncate">{project.name}</span>
-    </Link>
+    </SidebarLink>
   );
 }

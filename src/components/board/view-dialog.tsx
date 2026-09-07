@@ -2,13 +2,12 @@
 
 import { Bookmark } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 
 import { createView, updateView } from "@/actions/views";
 import { useBoardOptional } from "@/components/board/board-context";
 import { IconColorPicker } from "@/components/icon-color-picker";
-import { LoadingButton } from "@/components/loading-button";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,7 +20,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { tryAction } from "@/lib/action";
+import { newId } from "@/lib/ids";
+import { addView, patchView } from "@/lib/workspace";
 
 type EditableView = {
   id: string;
@@ -51,9 +51,9 @@ export function ViewDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
 
+  const { mutate } = useWorkspace();
   const [icon, setIcon] = useState<string | null>(view?.icon ?? null);
   const [color, setColor] = useState<string | null>(view?.color ?? null);
-  const [pending, startTransition] = useTransition();
 
   // Re-seed icon/color from props each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(false);
@@ -67,32 +67,30 @@ export function ViewDialog({
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const name = String(new FormData(event.currentTarget).get("name"));
-    startTransition(async () => {
-      if (view) {
-        const result = await tryAction(
-          updateView(view.id, { name, icon, color }),
-          { error: "Could not save the view" },
-        );
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-        setOpen(false);
-      } else {
-        if (!board) return;
-        const result = await tryAction(
-          createView({ name, icon, color, config: board.config }),
-          { error: "Could not create the view" },
-        );
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-        setOpen(false);
-        router.push(`/views/${result.viewId}`);
-      }
-    });
+    const name = String(new FormData(event.currentTarget).get("name")).trim();
+    if (!name) return;
+    if (view) {
+      void mutate({
+        optimistic: patchView(view.id, { name, icon, color }),
+        action: () => updateView(view.id, { name, icon, color }),
+        failure: "Could not save the view",
+        retry: true,
+      });
+      setOpen(false);
+    } else {
+      if (!board) return;
+      const id = newId();
+      const config = board.config;
+      // The view is in the sidebar and open before the server hears of it.
+      void mutate({
+        optimistic: addView({ id, name, icon, color, config }),
+        action: () => createView({ id, name, icon, color, config }),
+        failure: "Could not create the view",
+        retry: true,
+      });
+      setOpen(false);
+      router.push(`/views/${id}`);
+    }
   }
 
   return (
@@ -138,9 +136,7 @@ export function ViewDialog({
             >
               Cancel
             </Button>
-            <LoadingButton type="submit" loading={pending}>
-              {view ? "Save" : "Save view"}
-            </LoadingButton>
+            <Button type="submit">{view ? "Save" : "Save view"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
