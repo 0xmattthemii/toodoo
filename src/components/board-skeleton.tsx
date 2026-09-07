@@ -34,7 +34,10 @@ export function BoardContentSkeleton() {
 export function BoardHeaderSkeleton() {
   return (
     <div aria-hidden>
-      <div className="flex h-14 shrink-0 items-center gap-3 px-6">
+      <div
+        data-tauri-drag-region="deep"
+        className="flex h-14 shrink-0 items-center gap-3 px-6"
+      >
         <Skeleton className="size-5 rounded" />
         <Skeleton className="h-5 w-40 rounded" />
       </div>

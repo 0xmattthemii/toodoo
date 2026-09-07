@@ -36,7 +36,13 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2.5 px-6">
+      {/* data-tauri-drag-region: in the desktop app the header row is the
+          title bar, so dragging it moves the window (buttons keep working;
+          inert in a browser). Same on the other boards and the skeleton. */}
+      <header
+        data-tauri-drag-region="deep"
+        className="flex h-14 shrink-0 items-center gap-2.5 px-6"
+      >
         <AppearanceIcon
           icon={project.icon}
           color={project.color}

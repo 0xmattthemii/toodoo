@@ -21,9 +21,17 @@ main README).
   Google" completes inside the app (on macOS the webview presents a Safari
   user agent, which Google requires). Other web links open in the system
   browser.
-- Injects `window.__TOODOO_DESKTOP__ = { version }` into every page so the web
-  app knows it's inside the shell (it then shows **Switch server…** in the
-  profile menu instead of **Download desktop app**).
+- Injects `window.__TOODOO_DESKTOP__ = { version, platform }` into every page
+  so the web app knows it's inside the shell (it then shows **Switch server…**
+  in the profile menu instead of **Download desktop app**) and on which OS.
+- macOS: the title bar is a transparent overlay (`TitleBarStyle::Overlay`,
+  title hidden). The page runs to the top of the window — the sidebar keeps
+  its colour and border up to the edge — and the traffic lights are placed in
+  the web app's 56px header row, which pads around them (the shell stamps
+  `<html data-desktop="macos">` before the page loads). Header rows carry
+  `data-tauri-drag-region` to move the window; starting that drag and the
+  double-click maximize are the only IPC the connected server's pages are
+  granted (`capabilities/remote.json`). Windows keeps its normal title bar.
 - Registers the `toodoo://` deep-link scheme:
   - `toodoo://connect?server=https://todo.acme.com` opens the connect screen
     with that address filled in — this is what the web app's install dialog
@@ -158,6 +166,9 @@ own connect screen still works in either.
   notifications, dock badge count.
 - **Offline screen** — the shell shows a webview error page without a
   connection.
+- **Dragging on pages the app doesn't render** — on macOS the window moves
+  only from elements marked `data-tauri-drag-region`, so it can't be dragged
+  while Google's sign-in pages or the webview error page are showing.
 - **Other identity providers** — only Google's sign-in origin is allowed
   inside the window. A Google Workspace account that federates to a
   third-party IdP (Okta, Entra, …) is sent to the system browser and the
