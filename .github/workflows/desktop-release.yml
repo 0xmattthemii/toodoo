@@ -1,0 +1,83 @@
+name: Desktop release
+
+# Every change to the desktop shell that lands on main becomes a release:
+# bump the version (patch by default), commit and tag, then start the
+# `Desktop build` workflow on that tag, which builds, drafts the release,
+# publishes it once both installers are in, and refreshes the updater
+# manifest. Nothing here needs a personal token: the commit and tag are
+# pushed with GITHUB_TOKEN (which is why the tag push itself can't trigger
+# the build — GITHUB_TOKEN pushes never start workflows — and the build is
+# started explicitly with `gh workflow run`, which is allowed).
+#
+# Forks get this too once they've set up their own signing key
+# (DESKTOP_UPDATER_PUBKEY); set the DESKTOP_AUTO_RELEASE variable to `false`
+# to release by hand instead (`pnpm --dir desktop release …`).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "!desktop/README.md"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+
+# One release at a time; a second desktop merge waits for the first bump to
+# land rather than racing it to the same version number.
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      vars.DESKTOP_AUTO_RELEASE != 'false'
+      && (github.repository == '0xmattthemii/toodoo' || vars.DESKTOP_UPDATER_PUBKEY != '')
+      && !startsWith(github.event.head_commit.message, 'desktop: release v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # release.mjs refreshes Cargo.lock with `cargo metadata` (no compile).
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Bump, commit and tag
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump || 'patch' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node desktop/scripts/release.mjs "$BUMP"
+          version=$(node -p "require('./desktop/package.json').version")
+          echo "tag=desktop-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        run: git push --follow-tags origin HEAD:main
+
+      - name: Start the desktop build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          {
+            echo "Started the Desktop build for $TAG:"
+            echo "https://github.com/$GITHUB_REPOSITORY/actions/workflows/desktop.yml"
+          } >> "$GITHUB_STEP_SUMMARY"
