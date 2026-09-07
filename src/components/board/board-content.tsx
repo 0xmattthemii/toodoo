@@ -23,6 +23,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { tryAction } from "@/lib/action";
 import { cn } from "@/lib/utils";
 import type {
   BoardFilter,
@@ -190,7 +191,9 @@ export function BoardContent({
       [taskId]: { ...current[taskId], done },
     }));
     startTransition(async () => {
-      const result = await setTaskDone(taskId, done);
+      const result = await tryAction(setTaskDone(taskId, done), {
+        error: "Could not update the task",
+      });
       if (result.error) {
         toast.error(result.error);
         revertOverride(taskId);
@@ -209,7 +212,9 @@ export function BoardContent({
         [taskId]: { ...current[taskId], projectId, projectName },
       }));
       startTransition(async () => {
-        const result = await moveTaskToProject(taskId, projectId);
+        const result = await tryAction(moveTaskToProject(taskId, projectId), {
+          error: "Could not move the task",
+        });
         if (result.error) {
           toast.error(result.error);
           revertOverride(taskId);

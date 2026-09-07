@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { tryAction } from "@/lib/action";
 
 export function ProjectActions({
   project,
@@ -61,12 +62,15 @@ export function ProjectActions({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     startTransition(async () => {
-      const result = await updateProject(project.id, {
-        name: String(form.get("name")),
-        description: String(form.get("description")),
-        icon,
-        color,
-      });
+      const result = await tryAction(
+        updateProject(project.id, {
+          name: String(form.get("name")),
+          description: String(form.get("description")),
+          icon,
+          color,
+        }),
+        { error: "Could not save the project" },
+      );
       if (result.error) {
         toast.error(result.error);
         return;

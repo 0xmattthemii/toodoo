@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { tryAction } from "@/lib/action";
 import type {
   BoardFilter,
   BoardMode,
@@ -88,7 +89,9 @@ export function BoardToolbar() {
   function saveViewChanges() {
     if (!viewId) return;
     startTransition(async () => {
-      const result = await updateView(viewId, { config });
+      const result = await tryAction(updateView(viewId, { config }), {
+        error: "Could not save the view",
+      });
       if (result.error) {
         toast.error(result.error);
         return;

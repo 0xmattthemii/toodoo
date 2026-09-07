@@ -23,6 +23,12 @@ export const appBaseURL =
 
 const baseURL = appBaseURL;
 
+// Better Auth resolves its context once, here, and keeps the result for the
+// life of the process — a rejected init (its plugins query the database) is
+// kept too, and every later call fails with it. That rejection is left
+// unhandled on purpose: crashing recycles the instance, whereas swallowing it
+// would leave one that answers every request with the same error. The pool
+// retries connection failures so init rarely gets that far (src/db/index.ts).
 export const auth = betterAuth({
   baseURL,
   database: drizzleAdapter(db, {

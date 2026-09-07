@@ -90,7 +90,10 @@ export async function inviteToProject(
   return { invited: true as const };
 }
 
-export async function revokeInvitation(projectId: string, invitationId: string) {
+export async function revokeInvitation(
+  projectId: string,
+  invitationId: string,
+): Promise<{ error: string | undefined }> {
   const session = await requireSession();
   await requireMembership(projectId, session.user.id, "admin");
   await db
