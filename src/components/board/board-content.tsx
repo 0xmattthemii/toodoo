@@ -17,6 +17,8 @@ import {
   sidebarProjectFromDropId,
   taskDropId,
   taskFromDropId,
+  taskGroupFromTailDropId,
+  taskGroupTailDropId,
   useTaskDnd,
 } from "@/components/task-dnd";
 import { UserAvatar } from "@/components/user-avatar";
@@ -261,6 +263,15 @@ export function BoardContent({
     [groups, setSortBy, mutate],
   );
 
+  /** A group's tail stands for its last task; null when the group is empty. */
+  const tailTarget = useCallback(
+    (groupKey: string) => {
+      const last = groups.find((group) => group.key === groupKey)?.tasks.at(-1);
+      return last ? { groupKey, taskId: last.id } : null;
+    },
+    [groups],
+  );
+
   function openEdit(task: TaskWithMeta) {
     if (didJustDrag()) return;
     board.openEdit(task);
@@ -283,9 +294,16 @@ export function BoardContent({
       }
 
       // Landing on another task reorders within a group, and outside it means
-      // the same as landing on that task's column.
-      const target = taskFromDropId(dropId);
-      const targetGroupKey = target ? target.groupKey : dropId;
+      // the same as landing on that task's column. The space after a group's
+      // last task (list view) counts as landing on that last task.
+      const tailGroupKey = taskGroupFromTailDropId(dropId);
+      const target =
+        tailGroupKey !== null
+          ? tailTarget(tailGroupKey)
+          : taskFromDropId(dropId);
+      const targetGroupKey = target
+        ? target.groupKey
+        : (tailGroupKey ?? dropId);
       if (target && target.groupKey === fromGroupKey) {
         reorder(fromGroupKey, task.id, target.taskId);
         return;
@@ -296,7 +314,7 @@ export function BoardContent({
         if (projectId !== task.projectId) moveProject(task.id, projectId);
       }
     },
-    [config.groupBy, moveProject, reorder],
+    [config.groupBy, moveProject, reorder, tailTarget],
   );
 
   useEffect(() => {
@@ -309,7 +327,11 @@ export function BoardContent({
   // The group under the pointer, whether the pointer is over the column itself
   // or over one of its tasks.
   const overTask = overId ? taskFromDropId(overId) : null;
-  const overGroupKey = overTask ? overTask.groupKey : overId;
+  const overGroupKey = overTask
+    ? overTask.groupKey
+    : overId
+      ? (taskGroupFromTailDropId(overId) ?? overId)
+      : null;
 
   if (filteredTasks.length === 0) {
     return (
@@ -368,10 +390,17 @@ export function BoardContent({
   );
 
   if (config.mode === "list") {
+    // Each group ends in a droppable tail: the gap to the next group, and for
+    // the last group the rest of the view — so the list fills the page and a
+    // task dragged past the last row still lands (at the end of the group).
+    const lastIndex = groups.length - 1;
     return (
-      <div className="flex flex-col gap-6 px-6 pb-6 pt-4">
-        {groups.map((group) => (
-          <section key={group.key}>
+      <div className="flex flex-1 flex-col px-6 pt-4">
+        {groups.map((group, index) => (
+          <section
+            key={group.key}
+            className={cn("flex flex-col", index === lastIndex && "flex-1")}
+          >
             {config.groupBy !== "none" ? (
               <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
                 {group.label}
@@ -400,6 +429,7 @@ export function BoardContent({
                 )}
               />
             )}
+            <GroupTail groupKey={group.key} grow={index === lastIndex} />
           </section>
         ))}
         {dragOverlay}
@@ -482,10 +512,18 @@ function GroupTasks({
 
   const inGroup = activeGroupKey === group.key;
   const overTask = overId ? taskFromDropId(overId) : null;
+  // Hovering the group's tail previews the same order as hovering its last
+  // row — which is what a drop there does.
+  const overTaskId =
+    overTask?.groupKey === group.key
+      ? overTask.taskId
+      : overId && taskGroupFromTailDropId(overId) === group.key
+        ? (group.tasks.at(-1)?.id ?? null)
+        : null;
   const shiftFor = previewShifts(
     group.tasks.map((task) => task.id),
     inGroup && activeTask ? activeTask.id : null,
-    inGroup && overTask?.groupKey === group.key ? overTask.taskId : null,
+    inGroup ? overTaskId : null,
     pitch,
   );
 
@@ -512,6 +550,29 @@ function GroupTasks({
         </TaskLeaveWrapper>
       ))}
     </div>
+  );
+}
+
+/**
+ * The space after a group's rows in the list view: the gap to the next group,
+ * or everything down to the bottom of the view for the last group. Dropping a
+ * task on it puts the task at the end of the group (see `tailTarget`). The
+ * spacing it provides replaces what used to be the list's gap and padding.
+ */
+function GroupTail({ groupKey, grow }: { groupKey: string; grow: boolean }) {
+  const { activeTask } = useTaskDnd();
+  // Only a task can be dropped here, so the target is dead weight until one
+  // is in the air.
+  const { setNodeRef } = useDroppable({
+    id: taskGroupTailDropId(groupKey),
+    disabled: !activeTask,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      aria-hidden
+      className={cn("min-h-6", grow && "flex-1")}
+    />
   );
 }
 
