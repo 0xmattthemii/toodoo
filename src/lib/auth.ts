@@ -35,6 +35,24 @@ export const auth = betterAuth({
     provider: "pg",
     schema,
   }),
+  // In development the server rarely runs on the port BETTER_AUTH_URL names
+  // (`next dev` moves to a free one when 3100 is taken), and Better Auth
+  // would then refuse every sign-in as coming from an unknown origin. Trust
+  // whatever localhost port the request actually came from. Never in
+  // production, where the origin must match the deployment URL.
+  trustedOrigins:
+    process.env.NODE_ENV === "development"
+      ? (request) => {
+          const origin = request?.headers.get("origin");
+          if (!origin) return [];
+          try {
+            const { hostname } = new URL(origin);
+            return ["localhost", "127.0.0.1"].includes(hostname) ? [origin] : [];
+          } catch {
+            return [];
+          }
+        }
+      : undefined,
   // OAuth callback failures that happen before the state is parsed (an
   // expired or already-used state, i.e. a stale/duplicate callback) have no
   // errorCallbackURL to return to. Send them to the login page, where

@@ -2,7 +2,7 @@
 
 import { UserPlus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { startTransition, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/actions/members";
 import { LoadingButton } from "@/components/loading-button";
 import { UserAvatar } from "@/components/user-avatar";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,8 +33,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { tryAction } from "@/lib/action";
-import type { MemberWithUser, PendingInvitation, Role } from "@/lib/types";
+import type { Role } from "@/lib/types";
+import {
+  addInvitation,
+  addMember,
+  removeInvitation,
+  removeMember as removeMembership,
+  setMemberRole,
+} from "@/lib/workspace";
 
 const ROLE_ITEMS = [
   { value: "member", label: "Member" },
@@ -42,34 +49,38 @@ const ROLE_ITEMS = [
 
 export function MembersDialog({
   projectId,
-  members,
-  invitations,
   currentUserId,
   isAdmin,
 }: {
   projectId: string;
-  members: MemberWithUser[];
-  invitations: PendingInvitation[];
   currentUserId: string;
   isAdmin: boolean;
 }) {
   const router = useRouter();
+  const { mutate, membersOf, invitationsOf } = useWorkspace();
+  const members = membersOf(projectId);
+  const invitations = invitationsOf(projectId);
   const [inviteRole, setInviteRole] = useState<Role>("member");
-  const [pending, startTransition] = useTransition();
+  // Only inviting waits for the server: whether the address belongs to an
+  // existing account (added right away) or not (invited) is its answer.
+  const [inviting, startInviting] = useTransition();
 
   function onInvite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const email = String(new FormData(form).get("email"));
-    startTransition(async () => {
-      const result = await tryAction(
-        inviteToProject(projectId, email, inviteRole),
-        { error: "Could not send the invitation" },
-      );
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
+    startInviting(async () => {
+      const result = await mutate({
+        action: () => inviteToProject(projectId, email, inviteRole),
+        failure: "Could not send the invitation",
+        commit: (result) =>
+          "added" in result && result.member
+            ? addMember(projectId, result.member)
+            : "invited" in result && result.invitation
+              ? addInvitation(result.invitation)
+              : null,
+      });
+      if (!result) return;
       form.reset();
       toast.success(
         "added" in result
@@ -80,33 +91,37 @@ export function MembersDialog({
   }
 
   function onRoleChange(userId: string, role: Role) {
-    startTransition(async () => {
-      const result = await tryAction(updateMemberRole(projectId, userId, role), {
-        error: "Could not change the role",
-      });
-      if (result.error) toast.error(result.error);
+    void mutate({
+      optimistic: setMemberRole(projectId, userId, role),
+      action: () => updateMemberRole(projectId, userId, role),
+      failure: "Could not change the role",
     });
   }
 
   function onRemove(userId: string) {
-    startTransition(async () => {
-      const result = await tryAction(removeMember(projectId, userId), {
-        error: "Could not remove the member",
+    const leave = () =>
+      void mutate({
+        optimistic: removeMembership(projectId, userId),
+        action: () => removeMember(projectId, userId),
+        failure: "Could not remove the member",
       });
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      if (result.removedSelf) router.push("/");
+    if (userId !== currentUserId) {
+      leave();
+      return;
+    }
+    // Leaving takes the project with it: navigate home in the same
+    // transition, so its page never shows "not found".
+    startTransition(() => {
+      router.push("/");
+      leave();
     });
   }
 
   function onRevoke(invitationId: string) {
-    startTransition(async () => {
-      const result = await tryAction(revokeInvitation(projectId, invitationId), {
-        error: "Could not revoke the invitation",
-      });
-      if (result.error) toast.error(result.error);
+    void mutate({
+      optimistic: removeInvitation(invitationId),
+      action: () => revokeInvitation(projectId, invitationId),
+      failure: "Could not revoke the invitation",
     });
   }
 
@@ -152,7 +167,7 @@ export function MembersDialog({
                 ))}
               </SelectContent>
             </Select>
-            <LoadingButton type="submit" loading={pending}>
+            <LoadingButton type="submit" loading={inviting}>
               Invite
             </LoadingButton>
           </form>
@@ -206,7 +221,6 @@ export function MembersDialog({
                   size="icon-sm"
                   aria-label={`Remove ${member.name}`}
                   onClick={() => onRemove(member.id)}
-                  disabled={pending}
                 >
                   <X />
                 </Button>
@@ -238,7 +252,6 @@ export function MembersDialog({
                     size="icon-sm"
                     aria-label={`Revoke invitation for ${invitation.email}`}
                     onClick={() => onRevoke(invitation.id)}
-                    disabled={pending}
                   >
                     <X />
                   </Button>
