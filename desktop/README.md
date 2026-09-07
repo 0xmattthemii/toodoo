@@ -27,8 +27,9 @@ main README).
 - macOS: the title bar is a transparent overlay (`TitleBarStyle::Overlay`,
   title hidden). The page runs to the top of the window — the sidebar keeps
   its colour and border up to the edge — and the traffic lights are placed in
-  the web app's 56px header row, which pads around them (the shell stamps
-  `<html data-desktop="macos">` before the page loads). Header rows carry
+  the web app's 56px header row, which the sidebar leaves empty for them (no
+  wordmark, no divider; the shell stamps `<html data-desktop="macos">` before
+  the page loads so the CSS knows). Header rows carry
   `data-tauri-drag-region` to move the window; starting that drag and the
   double-click maximize are the only IPC the connected server's pages are
   granted (`capabilities/remote.json`). Windows keeps its normal title bar.
