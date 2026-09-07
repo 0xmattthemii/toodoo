@@ -63,26 +63,36 @@ pnpm tauri build            # .app + .dmg on macOS, .msi/.exe (NSIS) on Windows
 
 ## Releasing
 
-Versions are tagged `desktop-vX.Y.Z`, independent of the web app. One command
-bumps `package.json`, `tauri.conf.json`, `Cargo.toml`, and `Cargo.lock`, then
-commits and tags:
+Releases are automatic. Every merge to `main` that touches `desktop/` (other
+than this README) runs `.github/workflows/desktop-release.yml`, which bumps
+the patch version in `package.json`, `tauri.conf.json`, `Cargo.toml` and
+`Cargo.lock`, commits `desktop: release vX.Y.Z` to `main`, tags it
+`desktop-vX.Y.Z`, and starts `.github/workflows/desktop.yml` on that tag. That
+builds a macOS universal `.dmg` and a Windows NSIS installer, signs the updater
+artifacts, drafts a GitHub release with `latest.json`, and — once both
+installers are in — publishes it and runs
+`.github/workflows/desktop-updater-manifest.yml`, which copies `latest.json`
+onto the floating `updater` release that running apps poll
+(`releases/download/updater/latest.json`). Installed apps offer the update on
+their next launch; the web app's install dialog links the new installers
+within a few minutes. If a build fails, the draft stays unpublished and
+nothing reaches users.
+
+The floating `updater` tag exists so that publishing unrelated (e.g. web)
+releases in this repo can never break auto-update. Versions are independent
+of the web app.
+
+For a minor or major bump, run the **Desktop release** workflow by hand from
+the Actions tab and pick the bump. To release manually instead (or to opt out
+of automatic releases by setting the `DESKTOP_AUTO_RELEASE` repository
+variable to `false`):
 
 ```sh
 pnpm --dir desktop release patch   # or minor / major / an explicit x.y.z
 git push --follow-tags
 ```
 
-The tag triggers `.github/workflows/desktop.yml`, which builds a macOS
-universal `.dmg` and a Windows NSIS installer, signs the updater artifacts,
-and creates a **draft** GitHub release including `latest.json`. Review and
-publish the release — publishing triggers
-`.github/workflows/desktop-updater-manifest.yml`, which copies `latest.json`
-onto the floating `updater` release that running apps poll
-(`releases/download/updater/latest.json`). The floating tag exists so that
-publishing unrelated (e.g. web) releases in this repo can never break
-auto-update. The web app's install dialog picks up the new release within a
-few minutes (it looks for the latest published `desktop-v*` release and links
-its `.dmg` and `-setup.exe` assets).
+A tag pushed this way runs the same build-and-publish pipeline.
 
 ### Auto-update
 

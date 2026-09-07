@@ -4,20 +4,30 @@ name: Desktop updater manifest
 # `updater` release) rather than releases/latest, so publishing any
 # non-desktop release in this repo can never break auto-update. When a
 # desktop release is published, copy its latest.json onto the floating tag.
+#
+# The `release` trigger covers releases published by hand. The Desktop build
+# workflow publishes with GITHUB_TOKEN, which fires no `release` event, so it
+# starts this workflow directly with the tag as input.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Desktop release tag (desktop-vX.Y.Z)
+        type: string
+        required: true
 
 jobs:
   update-manifest:
-    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'desktop-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
       - name: Copy latest.json to the floating updater release
         run: |

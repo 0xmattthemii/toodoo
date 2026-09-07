@@ -1,0 +1,91 @@
+name: Desktop release
+
+# Every change to the desktop shell that lands on main becomes a release:
+# bump the version (patch by default), commit and tag, then start the
+# `Desktop build` workflow on that tag, which builds, drafts the release,
+# publishes it once both installers are in, and refreshes the updater
+# manifest. Nothing here needs a personal token: the commit and tag are
+# pushed with GITHUB_TOKEN (which is why the tag push itself can't trigger
+# the build — GITHUB_TOKEN pushes never start workflows — and the build is
+# started explicitly with `gh workflow run`, which is allowed).
+#
+# Forks get this too once they've set up their own signing key
+# (DESKTOP_UPDATER_PUBKEY); set the DESKTOP_AUTO_RELEASE variable to `false`
+# to release by hand instead (`pnpm --dir desktop release …`).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "!desktop/README.md"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+
+# One release at a time; a second desktop merge waits for the first bump to
+# land rather than racing it to the same version number.
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      vars.DESKTOP_AUTO_RELEASE != 'false'
+      && (github.repository == '0xmattthemii/toodoo' || vars.DESKTOP_UPDATER_PUBKEY != '')
+      && !startsWith(github.event.head_commit.message, 'desktop: release v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # release.mjs refreshes Cargo.lock with `cargo metadata` (no compile).
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Bump, commit, tag and push
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump || 'patch' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # main can move while this runs (another merge landing). The push is
+          # atomic — commit and tag land together or not at all — and on a
+          # rejection the bump is redone on the new tip, so the tag always
+          # points at a commit that is on main.
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset -q --hard origin/main
+            node desktop/scripts/release.mjs "$BUMP"
+            tag="desktop-v$(node -p "require('./desktop/package.json').version")"
+            if git push --atomic --follow-tags origin HEAD:main; then
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Push rejected (main moved?) — attempt $attempt of 3"
+            git tag -d "$tag"
+          done
+          exit 1
+
+      - name: Start the desktop build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          {
+            echo "Started the Desktop build for $TAG:"
+            echo "https://github.com/$GITHUB_REPOSITORY/actions/workflows/desktop.yml"
+          } >> "$GITHUB_STEP_SUMMARY"
