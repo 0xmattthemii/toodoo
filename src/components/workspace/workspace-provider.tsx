@@ -77,11 +77,21 @@ export function useWorkspace() {
 }
 
 type PendingEntry = { apply: Mutation };
+type CommittedEntry = { apply: Mutation; until: number };
 
 /** How long a snapshot is trusted before regaining focus triggers a refresh. */
 const REFRESH_AFTER_MS = 30_000;
 /** Background poll while the tab stays visible, to pick up teammates' changes. */
 const POLL_EVERY_MS = 60_000;
+/**
+ * How long a confirmed mutation keeps being re-applied over incoming
+ * snapshots. Responses can cross on the wire: a snapshot rendered for an
+ * earlier action may land after a later action has already been confirmed,
+ * and its `at` only says when it was read, not what it knows about. Within
+ * this window the later change is held onto; the mutations are idempotent, so
+ * re-applying one a snapshot already reflects changes nothing.
+ */
+const COMMIT_GRACE_MS = 15_000;
 
 /**
  * Holds the workspace on the client.
@@ -93,7 +103,8 @@ const POLL_EVERY_MS = 60_000;
  * visible through the server's answer — when an action succeeds, it moves
  * from `pending` into `baseline` in one step, and when the layout re-renders
  * with a fresh snapshot (after `revalidatePath`, a refresh, or a poll), that
- * snapshot becomes the new baseline with the in-flight changes re-applied.
+ * snapshot becomes the new baseline with the in-flight changes — and those
+ * confirmed in the last few seconds, see COMMIT_GRACE_MS — re-applied.
  */
 export function WorkspaceProvider({
   snapshot,
@@ -105,6 +116,7 @@ export function WorkspaceProvider({
   const router = useRouter();
   const [baseline, setBaseline] = useState(snapshot);
   const [pending, setPending] = useState<PendingEntry[]>([]);
+  const [committed, setCommitted] = useState<CommittedEntry[]>([]);
 
   // Adopt each snapshot the server sends, unless it predates one already
   // adopted (two responses can cross on the wire).
@@ -112,6 +124,8 @@ export function WorkspaceProvider({
   if (snapshot !== seen) {
     setSeen(snapshot);
     if (snapshot.at >= baseline.at) setBaseline(snapshot);
+    const now = Date.now();
+    setCommitted((current) => current.filter((entry) => entry.until > now));
   }
 
   const lastSync = useRef(Date.now());
@@ -165,7 +179,14 @@ export function WorkspaceProvider({
         }
         const commit = spec.commit ? spec.commit(result) : spec.optimistic;
         // Same batch: the change leaves `pending` as it enters `baseline`.
-        if (commit) setBaseline((current) => commit(current));
+        if (commit) {
+          setBaseline((current) => commit(current));
+          const now = Date.now();
+          setCommitted((current) => [
+            ...current.filter((e) => e.until > now),
+            { apply: commit, until: now + COMMIT_GRACE_MS },
+          ]);
+        }
         setPending((current) => current.filter((e) => e !== entry));
         resolve(result);
       });
@@ -173,8 +194,12 @@ export function WorkspaceProvider({
   }, []);
 
   const current = useMemo(
-    () => pending.reduce((s, entry) => entry.apply(s), baseline),
-    [baseline, pending],
+    () =>
+      [...committed, ...pending].reduce(
+        (s, entry) => entry.apply(s),
+        baseline,
+      ),
+    [baseline, committed, pending],
   );
 
   const value = useMemo<WorkspaceValue>(() => {
