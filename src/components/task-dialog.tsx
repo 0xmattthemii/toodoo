@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { tryAction } from "@/lib/action";
 import type {
   Person,
   ProjectSummary,
@@ -161,9 +162,10 @@ export function TaskDialog({
       assigneeIds,
     };
     startTransition(async () => {
-      const result = task
-        ? await updateTask(task.id, input)
-        : await createTask(input);
+      const result = await tryAction(
+        task ? updateTask(task.id, input) : createTask(input),
+        { error: "Could not save the task" },
+      );
       if (result.error) {
         toast.error(result.error);
         return;
@@ -175,7 +177,9 @@ export function TaskDialog({
   function onDelete() {
     if (!task) return;
     startDeleteTransition(async () => {
-      const result = await deleteTask(task.id);
+      const result = await tryAction(deleteTask(task.id), {
+        error: "Could not delete the task",
+      });
       if (result.error) {
         toast.error(result.error);
         return;

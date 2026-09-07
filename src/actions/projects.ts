@@ -19,21 +19,25 @@ export async function createProject(input: {
   const name = input.name.trim();
   if (!name) return { error: "Project name is required" };
 
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name,
-      description: input.description?.trim() || null,
-      icon: input.icon || null,
-      color: input.color || null,
-      createdBy: session.user.id,
-    })
-    .returning();
-
-  await db.insert(projectMembers).values({
-    projectId: project.id,
-    userId: session.user.id,
-    role: "admin",
+  // One transaction: a project row without its admin membership would be
+  // invisible in the sidebar and impossible to delete.
+  const project = await db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(projects)
+      .values({
+        name,
+        description: input.description?.trim() || null,
+        icon: input.icon || null,
+        color: input.color || null,
+        createdBy: session.user.id,
+      })
+      .returning();
+    await tx.insert(projectMembers).values({
+      projectId: project.id,
+      userId: session.user.id,
+      role: "admin",
+    });
+    return project;
   });
 
   revalidatePath("/", "layout");

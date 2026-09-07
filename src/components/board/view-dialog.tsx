@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { tryAction } from "@/lib/action";
 
 type EditableView = {
   id: string;
@@ -69,7 +70,10 @@ export function ViewDialog({
     const name = String(new FormData(event.currentTarget).get("name"));
     startTransition(async () => {
       if (view) {
-        const result = await updateView(view.id, { name, icon, color });
+        const result = await tryAction(
+          updateView(view.id, { name, icon, color }),
+          { error: "Could not save the view" },
+        );
         if (result.error) {
           toast.error(result.error);
           return;
@@ -77,12 +81,10 @@ export function ViewDialog({
         setOpen(false);
       } else {
         if (!board) return;
-        const result = await createView({
-          name,
-          icon,
-          color,
-          config: board.config,
-        });
+        const result = await tryAction(
+          createView({ name, icon, color, config: board.config }),
+          { error: "Could not create the view" },
+        );
         if (result.error) {
           toast.error(result.error);
           return;

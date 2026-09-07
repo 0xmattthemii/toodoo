@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { tryAction } from "@/lib/action";
 import type { MemberWithUser, PendingInvitation, Role } from "@/lib/types";
 
 const ROLE_ITEMS = [
@@ -61,7 +62,10 @@ export function MembersDialog({
     const form = event.currentTarget;
     const email = String(new FormData(form).get("email"));
     startTransition(async () => {
-      const result = await inviteToProject(projectId, email, inviteRole);
+      const result = await tryAction(
+        inviteToProject(projectId, email, inviteRole),
+        { error: "Could not send the invitation" },
+      );
       if (result.error) {
         toast.error(result.error);
         return;
@@ -77,14 +81,18 @@ export function MembersDialog({
 
   function onRoleChange(userId: string, role: Role) {
     startTransition(async () => {
-      const result = await updateMemberRole(projectId, userId, role);
+      const result = await tryAction(updateMemberRole(projectId, userId, role), {
+        error: "Could not change the role",
+      });
       if (result.error) toast.error(result.error);
     });
   }
 
   function onRemove(userId: string) {
     startTransition(async () => {
-      const result = await removeMember(projectId, userId);
+      const result = await tryAction(removeMember(projectId, userId), {
+        error: "Could not remove the member",
+      });
       if (result.error) {
         toast.error(result.error);
         return;
@@ -95,7 +103,9 @@ export function MembersDialog({
 
   function onRevoke(invitationId: string) {
     startTransition(async () => {
-      const result = await revokeInvitation(projectId, invitationId);
+      const result = await tryAction(revokeInvitation(projectId, invitationId), {
+        error: "Could not revoke the invitation",
+      });
       if (result.error) toast.error(result.error);
     });
   }

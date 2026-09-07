@@ -16,22 +16,22 @@ export async function createProjectFor(
   const name = input.name.trim();
   if (!name) throw new Error("Project name is required");
 
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name,
-      description: input.description?.trim() || null,
-      createdBy: userId,
-    })
-    .returning();
-
-  await db.insert(projectMembers).values({
-    projectId: project.id,
-    userId,
-    role: "admin",
+  return db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(projects)
+      .values({
+        name,
+        description: input.description?.trim() || null,
+        createdBy: userId,
+      })
+      .returning();
+    await tx.insert(projectMembers).values({
+      projectId: project.id,
+      userId,
+      role: "admin",
+    });
+    return project;
   });
-
-  return project;
 }
 
 export async function createTaskFor(
@@ -50,25 +50,26 @@ export async function createTaskFor(
     await requireMembership(input.projectId, userId);
   }
 
-  const [task] = await db
-    .insert(tasks)
-    .values({
-      title,
-      description: input.description?.trim() || null,
-      deadline: input.deadline ? new Date(input.deadline) : null,
-      projectId: input.projectId || null,
-      createdBy: userId,
-    })
-    .returning();
-
   const assigneeIds = [...new Set(input.assigneeIds ?? [])];
-  if (assigneeIds.length > 0) {
-    await db
-      .insert(taskAssignees)
-      .values(assigneeIds.map((assignee) => ({ taskId: task.id, userId: assignee })))
-      .onConflictDoNothing();
-  }
-  return task;
+  return db.transaction(async (tx) => {
+    const [task] = await tx
+      .insert(tasks)
+      .values({
+        title,
+        description: input.description?.trim() || null,
+        deadline: input.deadline ? new Date(input.deadline) : null,
+        projectId: input.projectId || null,
+        createdBy: userId,
+      })
+      .returning();
+    if (assigneeIds.length > 0) {
+      await tx
+        .insert(taskAssignees)
+        .values(assigneeIds.map((assignee) => ({ taskId: task.id, userId: assignee })))
+        .onConflictDoNothing();
+    }
+    return task;
+  });
 }
 
 /** Partial update; only provided fields change. `deadline: null` clears it. */
@@ -108,23 +109,25 @@ export async function updateTaskFor(
     patch.projectId = nextProjectId;
   }
 
-  const [updated] = await db
-    .update(tasks)
-    .set(patch)
-    .where(eq(tasks.id, taskId))
-    .returning();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(tasks)
+      .set(patch)
+      .where(eq(tasks.id, taskId))
+      .returning();
 
-  if (input.assigneeIds !== undefined) {
-    const assigneeIds = [...new Set(input.assigneeIds)];
-    await db.delete(taskAssignees).where(eq(taskAssignees.taskId, taskId));
-    if (assigneeIds.length > 0) {
-      await db
-        .insert(taskAssignees)
-        .values(assigneeIds.map((assignee) => ({ taskId, userId: assignee })))
-        .onConflictDoNothing();
+    if (input.assigneeIds !== undefined) {
+      const assigneeIds = [...new Set(input.assigneeIds)];
+      await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, taskId));
+      if (assigneeIds.length > 0) {
+        await tx
+          .insert(taskAssignees)
+          .values(assigneeIds.map((assignee) => ({ taskId, userId: assignee })))
+          .onConflictDoNothing();
+      }
     }
-  }
-  return updated;
+    return updated;
+  });
 }
 
 export async function deleteTaskFor(userId: string, taskId: string) {
