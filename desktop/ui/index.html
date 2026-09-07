@@ -225,7 +225,9 @@
       }
     </style>
   </head>
-  <body>
+  <!-- Dragging the empty backdrop moves the window (on macOS the title bar
+       is a transparent overlay, so nothing else would). -->
+  <body data-tauri-drag-region>
     <div class="wordmark">toodoo</div>
     <main class="card">
       <h1>Connect to your toodoo</h1>

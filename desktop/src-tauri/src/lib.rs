@@ -42,6 +42,18 @@ const SIGN_IN_ORIGINS: &[&str] = &["https://accounts.google.com", "https://accou
 const MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
 #[cfg(target_os = "macos")]
 const SWITCH_SERVER_MENU_ID: &str = "switch-server";
+/// macOS draws the title bar as a transparent overlay: the page runs up to
+/// the top edge of the window (so the sidebar keeps its colour and border
+/// all the way up) and the traffic lights float over the app's own header
+/// row. That row is 56px tall (h-14 in the web app). The position is the
+/// top-left of the close button's 16pt-tall frame, so y = 20 centres the
+/// lights in the row; x = 16 matches the sidebar's horizontal padding. The
+/// web app leaves the left 80px of the row free for them and marks its
+/// header rows as drag regions (`data-tauri-drag-region`), since the
+/// transparent strip isn't draggable by itself — see capabilities/remote.json.
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_POSITION: tauri::LogicalPosition<f64> =
+    tauri::LogicalPosition { x: 16.0, y: 20.0 };
 
 /// Which deployment the main window wraps.
 struct ServerState {
@@ -415,11 +427,18 @@ pub fn run() {
             install_menu(app)?;
 
             // Lets the web app tell it runs inside the shell (it then offers
-            // "Switch server" instead of "Download desktop app").
+            // "Switch server" instead of "Download desktop app") and on which
+            // OS. The platform is also stamped on <html data-desktop> so the
+            // app's CSS can lay the header out around the traffic lights
+            // (macOS) before its own scripts run — no jump on load. This runs
+            // at document start; WKWebView already has the document element
+            // then, WebView2 may not (the attribute is only used on macOS).
             let shell_marker = format!(
-                "window.__TOODOO_DESKTOP__ = Object.freeze({{ version: {} }});",
-                serde_json::to_string(&app.package_info().version.to_string())
-                    .expect("string serializes")
+                "window.__TOODOO_DESKTOP__ = Object.freeze({{ version: {version}, platform: {platform} }});\n\
+                 if (document.documentElement) document.documentElement.dataset.desktop = {platform};",
+                version = serde_json::to_string(&app.package_info().version.to_string())
+                    .expect("string serializes"),
+                platform = serde_json::to_string(std::env::consts::OS).expect("string serializes"),
             );
 
             let handle = app.handle().clone();
@@ -429,7 +448,11 @@ pub fn run() {
                 .min_inner_size(720.0, 480.0)
                 .initialization_script(shell_marker);
             #[cfg(target_os = "macos")]
-            let builder = builder.user_agent(MACOS_USER_AGENT);
+            let builder = builder
+                .user_agent(MACOS_USER_AGENT)
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(TRAFFIC_LIGHT_POSITION);
             builder
                 .on_navigation(move |url| {
                     // The bundled connect page always renders in the window.

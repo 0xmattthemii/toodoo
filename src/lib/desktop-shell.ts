@@ -6,7 +6,17 @@ import { useSyncExternalStore } from "react";
  * Set by the desktop app (desktop/src-tauri/src/lib.rs) on every page it
  * loads, before any script runs. Absent in a normal browser.
  */
-export type DesktopShell = { version: string };
+export type DesktopShell = {
+  version: string;
+  /**
+   * Rust's `std::env::consts::OS`: "macos", "windows", "linux". The shell
+   * also stamps it on `<html data-desktop>` before the page loads, so CSS can
+   * adapt the layout — on macOS the window's title bar is a transparent
+   * overlay and the traffic lights float over the app's header
+   * (`desktop-macos:` Tailwind variant in src/app/globals.css).
+   */
+  platform: string;
+};
 
 declare global {
   interface Window {

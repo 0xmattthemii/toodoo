@@ -14,7 +14,10 @@ export default async function AllTasksPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center px-6">
+      <header
+        data-tauri-drag-region="deep"
+        className="flex h-14 shrink-0 items-center px-6"
+      >
         <h1 className="text-lg font-semibold tracking-tight">All tasks</h1>
       </header>
       <BoardProvider currentUserId={session.user.id}>

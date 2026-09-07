@@ -32,7 +32,13 @@ export function AppSidebar({
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-muted/30">
-      <div className="flex h-14 shrink-0 items-center justify-center border-b px-4">
+      {/* In the macOS desktop app this row doubles as the title bar: the
+          traffic lights sit in its left 80px and dragging it moves the window
+          (data-tauri-drag-region is inert in a browser). */}
+      <div
+        data-tauri-drag-region="deep"
+        className="flex h-14 shrink-0 items-center justify-center border-b px-4 desktop-macos:justify-start desktop-macos:pl-20"
+      >
         <span className="text-lg font-bold tracking-tight">toodoo</span>
       </div>
 
