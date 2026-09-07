@@ -35,14 +35,17 @@ export function AppSidebar({
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-muted/30">
-      {/* In the macOS desktop app this row doubles as the title bar: the
-          traffic lights sit in its left 80px and dragging it moves the window
+      {/* In the macOS desktop app this row is the title bar: the traffic
+          lights sit in it and dragging it moves the window, so the wordmark
+          and the divider go and the sidebar visibly starts at "All tasks"
           (data-tauri-drag-region is inert in a browser). */}
       <div
         data-tauri-drag-region="deep"
-        className="flex h-14 shrink-0 items-center justify-center border-b px-4 desktop-macos:justify-start desktop-macos:pl-20"
+        className="flex h-14 shrink-0 items-center justify-center border-b px-4 desktop-macos:border-b-0"
       >
-        <span className="text-lg font-bold tracking-tight">toodoo</span>
+        <span className="text-lg font-bold tracking-tight desktop-macos:hidden">
+          toodoo
+        </span>
       </div>
 
       <nav className="flex flex-col gap-1 px-2 py-2">

@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 /* Inside the macOS desktop app (the shell stamps the attribute on <html>): the
    title bar is a transparent overlay, so the page runs to the top edge and the
-   traffic lights float over the top-left 80px of the header row. */
+   traffic lights float over the top-left of the sidebar's header row. */
 @custom-variant desktop-macos (&:is(html[data-desktop="macos"] *));
 
 @theme inline {

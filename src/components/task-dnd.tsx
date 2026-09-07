@@ -26,6 +26,7 @@ import type { TaskWithMeta } from "@/lib/types";
 
 const SIDEBAR_PROJECT_PREFIX = "sidebar-project:";
 const TASK_PREFIX = "task:";
+const TAIL_PREFIX = "task-tail:";
 
 /** Droppable id for a project row in the sidebar. */
 export function sidebarProjectDropId(projectId: string) {
@@ -62,6 +63,22 @@ export function taskFromDropId(dropId: string) {
     groupKey: dropId.slice(TASK_PREFIX.length, separator),
     taskId: dropId.slice(separator + 2),
   };
+}
+
+/**
+ * Droppable id for the space after a group's last task in the list view.
+ * Dropping there means "the end of this group", so a drag past the last row
+ * lands instead of being ignored.
+ */
+export function taskGroupTailDropId(groupKey: string) {
+  return `${TAIL_PREFIX}${groupKey}`;
+}
+
+/** The group whose tail a drop id refers to, or null if it isn't a tail. */
+export function taskGroupFromTailDropId(dropId: string) {
+  return dropId.startsWith(TAIL_PREFIX)
+    ? dropId.slice(TAIL_PREFIX.length)
+    : null;
 }
 
 /** Called on every task drop, with a null id when it landed nowhere. */
@@ -102,7 +119,8 @@ export function useTaskDnd() {
 /**
  * Prefer whatever is under the pointer; fall back to rect overlap so a drop
  * near a kanban column's edge still lands. The fallback deliberately skips
- * rows — the sidebar's projects and the board's tasks. They are small, and the
+ * rows — the sidebar's projects and the board's tasks — and the list view's
+ * group tails. They are small (or, for a tail, right below rows), and the
  * drag overlay overlaps plenty of them long before the pointer gets there,
  * which would drop a task somewhere nobody pointed at.
  */
@@ -114,7 +132,9 @@ const collisionDetection: CollisionDetection = (args) => {
     droppableContainers: args.droppableContainers.filter((container) => {
       const id = String(container.id);
       return (
-        sidebarProjectFromDropId(id) === null && taskFromDropId(id) === null
+        sidebarProjectFromDropId(id) === null &&
+        taskFromDropId(id) === null &&
+        taskGroupFromTailDropId(id) === null
       );
     }),
   });
