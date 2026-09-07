@@ -9,14 +9,12 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { useTransition } from "react";
-import { toast } from "sonner";
 
 import { updateView } from "@/actions/views";
 import { useBoard } from "@/components/board/board-context";
 import { ViewDialog } from "@/components/board/view-dialog";
-import { LoadingButton } from "@/components/loading-button";
 import { TaskDialog } from "@/components/task-dialog";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +34,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { tryAction } from "@/lib/action";
 import type {
   BoardFilter,
   BoardMode,
@@ -44,6 +41,7 @@ import type {
   GroupBy,
   SortBy,
 } from "@/lib/types";
+import { patchView } from "@/lib/workspace";
 
 const GROUP_ITEMS: { value: GroupBy; label: string }[] = [
   { value: "none", label: "None" },
@@ -75,7 +73,7 @@ const FIELD_LABELS: Record<FilterField, string> = {
 
 export function BoardToolbar() {
   const board = useBoard();
-  const [pending, startTransition] = useTransition();
+  const { mutate } = useWorkspace();
 
   const { config, options, scopedProjectId, viewId, dirty, showDone } = board;
 
@@ -104,16 +102,13 @@ export function BoardToolbar() {
 
   function saveViewChanges() {
     if (!viewId) return;
-    startTransition(async () => {
-      const result = await tryAction(updateView(viewId, { config }), {
-        error: "Could not save the view",
-      });
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      board.markSaved();
-      toast.success("View updated");
+    // The view's stored config updates at once, which also settles `dirty`.
+    board.markSaved();
+    void mutate({
+      optimistic: patchView(viewId, { config }),
+      action: () => updateView(viewId, { config }),
+      failure: "Could not save the view",
+      retry: true,
     });
   }
 
@@ -251,14 +246,10 @@ export function BoardToolbar() {
 
         <div className="ml-auto flex items-center gap-2">
           {viewId && dirty ? (
-            <LoadingButton
-              variant="outline"
-              onClick={saveViewChanges}
-              loading={pending}
-            >
+            <Button variant="outline" onClick={saveViewChanges}>
               <Bookmark />
               Save changes
-            </LoadingButton>
+            </Button>
           ) : null}
           {!viewId && !scopedProjectId ? <ViewDialog /> : null}
           <Button onClick={board.openCreate}>

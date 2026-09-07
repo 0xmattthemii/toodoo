@@ -22,6 +22,11 @@ import {
   type TaskWithMeta,
   type ViewSummary,
 } from "@/lib/types";
+import type {
+  ProjectInvitation,
+  ProjectMembership,
+  WorkspaceSnapshot,
+} from "@/lib/workspace";
 
 /**
  * The position a brand-new membership takes: the bottom of that user's
@@ -375,4 +380,80 @@ export async function acceptPendingInvitations(userId: string, email: string) {
       .set({ status: "accepted" })
       .where(eq(projectInvitations.id, invitation.id));
   }
+}
+
+/** Every membership of every project the user belongs to, the user's own included. */
+export async function getProjectMemberships(
+  userId: string,
+): Promise<ProjectMembership[]> {
+  const myProjects = db
+    .select({ id: projectMembers.projectId })
+    .from(projectMembers)
+    .where(eq(projectMembers.userId, userId));
+
+  const rows = await db
+    .select({
+      projectId: projectMembers.projectId,
+      role: projectMembers.role,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+    })
+    .from(projectMembers)
+    .innerJoin(user, eq(projectMembers.userId, user.id))
+    .where(inArray(projectMembers.projectId, myProjects))
+    .orderBy(asc(projectMembers.createdAt));
+
+  return rows.map(({ projectId, role, ...person }) => ({
+    projectId,
+    role,
+    user: person,
+  }));
+}
+
+/** Pending invitations of the projects the user administers. */
+export async function getAdminInvitations(
+  userId: string,
+): Promise<ProjectInvitation[]> {
+  const adminProjects = db
+    .select({ id: projectMembers.projectId })
+    .from(projectMembers)
+    .where(
+      and(eq(projectMembers.userId, userId), eq(projectMembers.role, "admin")),
+    );
+
+  return db
+    .select({
+      id: projectInvitations.id,
+      projectId: projectInvitations.projectId,
+      email: projectInvitations.email,
+      role: projectInvitations.role,
+      createdAt: projectInvitations.createdAt,
+    })
+    .from(projectInvitations)
+    .where(
+      and(
+        eq(projectInvitations.status, "pending"),
+        inArray(projectInvitations.projectId, adminProjects),
+      ),
+    )
+    .orderBy(asc(projectInvitations.createdAt));
+}
+
+/**
+ * Everything the app shell hands to the client in one go. The queries are
+ * independent, so they run as a single round of parallel requests.
+ */
+export async function getWorkspaceSnapshot(
+  me: Person,
+): Promise<WorkspaceSnapshot> {
+  const [projects, views, tasks, memberships, invitations] = await Promise.all([
+    getUserProjects(me.id),
+    getUserViews(me.id),
+    getVisibleTasks(me.id),
+    getProjectMemberships(me.id),
+    getAdminInvitations(me.id),
+  ]);
+  return { at: Date.now(), me, projects, views, tasks, memberships, invitations };
 }

@@ -1,11 +1,13 @@
+"use client";
+
 import { Bookmark } from "lucide-react";
-import Link from "next/link";
 
+import { SidebarLink } from "@/components/sidebar-link";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { AppearanceIcon } from "@/lib/appearance";
-import { getUserViews } from "@/lib/data";
 
-export async function SidebarViews({ userId }: { userId: string }) {
-  const views = await getUserViews(userId);
+export function SidebarViews() {
+  const { views } = useWorkspace();
 
   if (views.length === 0) {
     return (
@@ -18,11 +20,7 @@ export async function SidebarViews({ userId }: { userId: string }) {
   return (
     <div className="flex flex-col gap-0.5 px-2">
       {views.map((view) => (
-        <Link
-          key={view.id}
-          href={`/views/${view.id}`}
-          className="flex h-8 items-center gap-2 rounded-lg px-2 text-sm text-foreground hover:bg-accent"
-        >
+        <SidebarLink key={view.id} href={`/views/${view.id}`}>
           <AppearanceIcon
             icon={view.icon}
             color={view.color}
@@ -30,7 +28,7 @@ export async function SidebarViews({ userId }: { userId: string }) {
             className="size-4 shrink-0 text-muted-foreground"
           />
           <span className="truncate">{view.name}</span>
-        </Link>
+        </SidebarLink>
       ))}
     </div>
   );

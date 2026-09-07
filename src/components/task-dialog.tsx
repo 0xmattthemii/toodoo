@@ -2,13 +2,12 @@
 
 import { addDays, format, startOfToday } from "date-fns";
 import { CalendarIcon, Plus, Trash2, X } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 
 import { createTask, deleteTask, updateTask } from "@/actions/tasks";
 import { ProjectForm } from "@/components/project-form";
 import { UserAvatar } from "@/components/user-avatar";
-import { LoadingButton } from "@/components/loading-button";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -40,12 +39,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { tryAction } from "@/lib/action";
+import { newId } from "@/lib/ids";
 import type {
   Person,
   ProjectSummary,
   TaskWithMeta,
 } from "@/lib/types";
+import { addTask, patchTask, removeTask } from "@/lib/workspace";
 
 const NO_PROJECT = "none";
 /** Sentinel item in the project select — never stored as a task's project. */
@@ -66,18 +66,14 @@ export function TaskDialog({
   people: Person[];
   defaultProjectId?: string;
 }) {
+  const { me, mutate, tasks } = useWorkspace();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
   const [deadline, setDeadline] = useState<Date | undefined>(undefined);
   const [deadlineOpen, setDeadlineOpen] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
-  const [pending, startTransition] = useTransition();
-  const [deleting, startDeleteTransition] = useTransition();
 
-  // Projects created from inside this dialog, kept until the server data that
-  // `projects` comes from catches up.
-  const [createdProjects, setCreatedProjects] = useState<ProjectSummary[]>([]);
   // Creating a project takes over this dialog rather than stacking a second
   // one on top of it. Every task field is controlled state, so the task form
   // can unmount and come back exactly as it was.
@@ -102,17 +98,9 @@ export function TaskDialog({
     }
   }
 
-  const availableProjects = useMemo(() => {
-    const known = new Set(projects.map((project) => project.id));
-    return [
-      ...projects,
-      ...createdProjects.filter((project) => !known.has(project.id)),
-    ];
-  }, [projects, createdProjects]);
-
   const projectItems = [
     { value: NO_PROJECT, label: "No project" },
-    ...availableProjects.map((project) => ({
+    ...projects.map((project) => ({
       value: project.id,
       label: project.name,
     })),
@@ -142,7 +130,6 @@ export function TaskDialog({
 
   /** A project created here becomes this task's project, then back to the task. */
   function onProjectCreated(project: ProjectSummary) {
-    setCreatedProjects((current) => [...current, project]);
     setProjectId(project.id);
     setPane("task");
   }
@@ -152,40 +139,69 @@ export function TaskDialog({
     setDeadlineOpen(false);
   }
 
+  // The task is on the board the moment the dialog closes; the server is
+  // told in the background, and a failure offers to send it again.
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    const nextProjectId = projectId === NO_PROJECT ? null : projectId;
     const input = {
-      title,
+      title: trimmedTitle,
       description,
       deadline: deadline ? deadline.toISOString() : null,
-      projectId: projectId === NO_PROJECT ? null : projectId,
+      projectId: nextProjectId,
       assigneeIds,
     };
-    startTransition(async () => {
-      const result = await tryAction(
-        task ? updateTask(task.id, input) : createTask(input),
-        { error: "Could not save the task" },
-      );
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      onOpenChange(false);
-    });
+    const fields = {
+      title: trimmedTitle,
+      description: description.trim() || null,
+      deadline: deadline ?? null,
+      projectId: nextProjectId,
+      projectName: nextProjectId
+        ? (projects.find((project) => project.id === nextProjectId)?.name ??
+          null)
+        : null,
+      assignees: people.filter((person) => assigneeIds.includes(person.id)),
+    };
+
+    if (task) {
+      void mutate({
+        optimistic: patchTask(task.id, fields),
+        action: () => updateTask(task.id, input),
+        failure: "Could not save the task",
+        retry: true,
+      });
+    } else {
+      const id = newId();
+      void mutate({
+        optimistic: addTask({
+          id,
+          ...fields,
+          done: false,
+          // Top of the manual order, as the server places it (see
+          // nextTaskPosition); the next snapshot carries the stored value.
+          position: Math.min(1, ...tasks.map((t) => t.position)) - 1,
+          createdBy: me.id,
+          createdAt: new Date(),
+        }),
+        action: () => createTask({ id, ...input }),
+        failure: "Could not create the task",
+        retry: true,
+      });
+    }
+    onOpenChange(false);
   }
 
   function onDelete() {
     if (!task) return;
-    startDeleteTransition(async () => {
-      const result = await tryAction(deleteTask(task.id), {
-        error: "Could not delete the task",
-      });
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      onOpenChange(false);
+    void mutate({
+      optimistic: removeTask(task.id),
+      action: () => deleteTask(task.id),
+      failure: "Could not delete the task",
+      retry: true,
     });
+    onOpenChange(false);
   }
 
   return (
@@ -396,16 +412,10 @@ export function TaskDialog({
               </div>
               <DialogFooter className={task ? "sm:justify-between" : undefined}>
                 {task ? (
-                  <LoadingButton
-                    type="button"
-                    variant="destructive"
-                    onClick={onDelete}
-                    loading={deleting}
-                    disabled={pending}
-                  >
+                  <Button type="button" variant="destructive" onClick={onDelete}>
                     <Trash2 />
                     Delete
-                  </LoadingButton>
+                  </Button>
                 ) : null}
                 <div className="flex gap-2">
                   <Button
@@ -415,9 +425,9 @@ export function TaskDialog({
                   >
                     Cancel
                   </Button>
-                  <LoadingButton type="submit" loading={pending} disabled={deleting}>
+                  <Button type="submit">
                     {task ? "Save changes" : "Create task"}
-                  </LoadingButton>
+                  </Button>
                 </div>
               </DialogFooter>
             </form>

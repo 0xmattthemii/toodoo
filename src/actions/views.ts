@@ -1,15 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { views } from "@/db/schema";
+import { isValidId } from "@/lib/ids";
 import { requireSession } from "@/lib/session";
 import { normalizeBoardConfig, type BoardConfig } from "@/lib/types";
 
 export async function createView(input: {
+  id?: string;
   name: string;
   icon?: string | null;
   color?: string | null;
@@ -18,10 +19,14 @@ export async function createView(input: {
   const session = await requireSession();
   const name = input.name.trim();
   if (!name) return { error: "View name is required" };
+  if (input.id !== undefined && !isValidId(input.id)) {
+    return { error: "Invalid view id" };
+  }
 
   const [view] = await db
     .insert(views)
     .values({
+      id: input.id,
       name,
       icon: input.icon || null,
       color: input.color || null,
@@ -68,11 +73,12 @@ export async function updateView(
   return { error: undefined };
 }
 
+/** The client leaves the view's page itself, before the request is sent. */
 export async function deleteView(viewId: string) {
   const session = await requireSession();
   await db
     .delete(views)
     .where(and(eq(views.id, viewId), eq(views.ownerId, session.user.id)));
   revalidatePath("/", "layout");
-  redirect("/");
+  return { error: undefined };
 }

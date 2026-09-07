@@ -2,9 +2,9 @@
 
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { Hash } from "lucide-react";
-import Link from "next/link";
 
 import { DragHandle } from "@/components/drag-handle";
+import { SidebarLink } from "@/components/sidebar-link";
 import {
   projectDragId,
   sidebarProjectDropId,
@@ -80,16 +80,17 @@ export function SidebarProjectLink({
           isDragging && "opacity-30",
         )}
       >
-        <Link
+        <SidebarLink
           href={`/projects/${project.id}`}
+          // Room on the right for the grip.
           className={cn(
-            "flex h-8 items-center gap-2 rounded-lg pr-6 pl-2 text-sm text-foreground transition-all duration-150 hover:bg-accent",
+            "pr-6 transition-all",
             isTaskTarget && "ring-1 ring-border",
             isTaskTarget && isOver && "bg-accent ring-2 ring-ring/40",
           )}
         >
           <SidebarProjectRow project={project} />
-        </Link>
+        </SidebarLink>
         <DragHandle
           handle={{ ref: setActivatorNodeRef, listeners, attributes }}
           label={`Drag "${project.name}"`}

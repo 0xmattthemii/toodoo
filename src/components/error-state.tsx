@@ -18,7 +18,9 @@ export function ErrorState({
   className?: string;
 }) {
   return (
+    // In the desktop app the empty area moves the window (inert in a browser).
     <div
+      data-tauri-drag-region
       className={cn(
         "flex flex-col items-center justify-center gap-3 p-6 text-center",
         className,

@@ -1,8 +1,10 @@
-import { SidebarProjectList } from "@/components/sidebar-project-list";
-import { getUserProjects } from "@/lib/data";
+"use client";
 
-export async function SidebarProjects({ userId }: { userId: string }) {
-  const projects = await getUserProjects(userId);
+import { SidebarProjectList } from "@/components/sidebar-project-list";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
+
+export function SidebarProjects() {
+  const { projects } = useWorkspace();
 
   if (projects.length === 0) {
     return (

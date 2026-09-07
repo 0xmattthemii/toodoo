@@ -1,14 +1,7 @@
 "use client";
 
 import { DragOverlay, useDndMonitor } from "@dnd-kit/core";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { reorderProjects } from "@/actions/projects";
 import {
@@ -19,9 +12,10 @@ import {
   sidebarProjectFromDropId,
   useTaskDnd,
 } from "@/components/task-dnd";
-import { tryAction } from "@/lib/action";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { moveItem, previewShifts, rowPitch } from "@/lib/ordering";
 import type { ProjectSummary } from "@/lib/types";
+import { setProjectOrder } from "@/lib/workspace";
 
 /**
  * The sidebar's project list, reorderable by dragging one row onto another.
@@ -34,8 +28,7 @@ export function SidebarProjectList({
   projects: ProjectSummary[];
 }) {
   const { activeProjectId, overId, registerProjectDropHandler } = useTaskDnd();
-  const [ordered, setOrdered] = useState(projects);
-  const [, startTransition] = useTransition();
+  const { mutate } = useWorkspace();
   const container = useRef<HTMLDivElement>(null);
   const [pitch, setPitch] = useState(0);
 
@@ -47,41 +40,26 @@ export function SidebarProjectList({
     },
   });
 
-  // The local order only bridges the gap between the drop and the revalidation.
-  const [prevProjects, setPrevProjects] = useState(projects);
-  if (prevProjects !== projects) {
-    setPrevProjects(projects);
-    setOrdered(projects);
-  }
-
   const onDrop = useCallback(
     (dropId: string | null, projectId: string) => {
       if (!dropId) return;
       const targetId = sidebarProjectFromDropId(dropId);
       if (targetId === null) return;
 
-      const ids = ordered.map((project) => project.id);
+      const ids = projects.map((project) => project.id);
       const from = ids.indexOf(projectId);
       const to = ids.indexOf(targetId);
       if (from === -1 || to === -1 || from === to) return;
 
-      const next = moveItem(ordered, from, to);
-      setOrdered(next);
-
-      startTransition(async () => {
-        const result = await tryAction(
-          reorderProjects(next.map((project) => project.id)),
-          {
-            error: "Could not reorder your projects",
-          },
-        );
-        if (result.error) {
-          toast.error(result.error);
-          setOrdered(projects);
-        }
+      const next = moveItem(ids, from, to);
+      void mutate({
+        optimistic: setProjectOrder(next),
+        action: () => reorderProjects(next),
+        failure: "Could not reorder your projects",
+        retry: true,
       });
     },
-    [ordered, projects, startTransition],
+    [projects, mutate],
   );
 
   useEffect(() => {
@@ -91,18 +69,18 @@ export function SidebarProjectList({
 
   // Preview the drop: the rows slide into the order `onDrop` would produce.
   const shiftFor = previewShifts(
-    ordered.map((project) => project.id),
+    projects.map((project) => project.id),
     activeProjectId,
     overId ? sidebarProjectFromDropId(overId) : null,
     pitch,
   );
-  const activeProject = ordered.find(
+  const activeProject = projects.find(
     (project) => project.id === activeProjectId,
   );
 
   return (
     <div ref={container} className="flex flex-col gap-0.5 px-2">
-      {ordered.map((project, index) => (
+      {projects.map((project, index) => (
         <SidebarProjectLink
           key={project.id}
           project={project}
