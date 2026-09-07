@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote",
+  "description": "The only IPC the connected server's pages get: moving and (on double-click) maximizing the window from elements they mark with `data-tauri-drag-region`. Needed because on macOS the title bar is a transparent overlay over the web app's header, which isn't draggable on its own. Both commands only act on a mouse gesture the user is already making, so granting them to any https origin (and http localhost, for development) exposes nothing. A pattern without a port only matches the default port, hence the `:*` twins; the set mirrors what normalize_server_url in src/lib.rs accepts (bar the IPv6 loopback, which URLPattern can't express) and a unit test there keeps them in sync.",
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://*",
+      "https://*:*",
+      "http://localhost:*",
+      "http://127.0.0.1:*"
+    ]
+  },
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

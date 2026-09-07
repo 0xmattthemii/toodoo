@@ -4,7 +4,12 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center gap-8 bg-muted/40 p-4">
+    // In the desktop app the empty backdrop moves the window (the macOS title
+    // bar is a transparent overlay, so nothing else would). Inert in a browser.
+    <div
+      data-tauri-drag-region
+      className="relative flex min-h-dvh flex-col items-center justify-center gap-8 bg-muted/40 p-4"
+    >
       {/* Dotted backdrop, faded out toward the edges. */}
       <div
         aria-hidden

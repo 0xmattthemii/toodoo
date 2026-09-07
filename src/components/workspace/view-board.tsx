@@ -25,7 +25,10 @@ export function ViewBoard({ viewId }: { viewId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2.5 px-6">
+      <header
+        data-tauri-drag-region="deep"
+        className="flex h-14 shrink-0 items-center gap-2.5 px-6"
+      >
         <AppearanceIcon
           icon={view.icon}
           color={view.color}
