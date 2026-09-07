@@ -556,6 +556,39 @@ mod tests {
         assert!(!is_sign_in_origin(&Url::parse("https://evil.example/accounts.google.com").unwrap()));
     }
 
+    /// Every origin normalize_server_url can produce must be covered by the
+    /// remote capability, or the header stops being draggable on that server
+    /// (a URLPattern without a port only matches the default port). The IPv6
+    /// loopback is the one exception: URLPattern has no syntax for it.
+    #[test]
+    fn remote_capability_covers_every_accepted_server_origin() {
+        use tauri::utils::acl::RemoteUrlPattern;
+
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/remote.json")).unwrap();
+        let patterns: Vec<RemoteUrlPattern> = capability["remote"]["urls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().parse().unwrap())
+            .collect();
+        let covered = |url: &str| {
+            let url = Url::parse(url).unwrap();
+            patterns.iter().any(|p| p.test(&url))
+        };
+        for input in [
+            "todo.acme.com",
+            "https://todo.acme.com:8443",
+            "http://localhost:3000",
+            "http://127.0.0.1:3100",
+        ] {
+            let origin = normalize_server_url(input).unwrap();
+            let page = origin.join("/projects/1?x=y#z").unwrap();
+            assert!(covered(page.as_str()), "{input} -> {page}");
+        }
+        assert!(!covered("http://todo.acme.com/"));
+    }
+
     #[test]
     fn maps_deep_links_onto_the_server() {
         let base = Url::parse("https://todo.acme.com/").unwrap();

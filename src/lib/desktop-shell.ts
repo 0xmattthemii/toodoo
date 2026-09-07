@@ -13,9 +13,10 @@ export type DesktopShell = {
    * also stamps it on `<html data-desktop>` before the page loads, so CSS can
    * adapt the layout — on macOS the window's title bar is a transparent
    * overlay and the traffic lights float over the app's header
-   * (`desktop-macos:` Tailwind variant in src/app/globals.css).
+   * (`desktop-macos:` Tailwind variant in src/app/globals.css). Absent in
+   * shells released before desktop 0.2, which still run against this app.
    */
-  platform: string;
+  platform?: string;
 };
 
 declare global {
