@@ -1,6 +1,14 @@
 "use client";
 
-import { Bookmark, Eye, EyeOff, ListFilter, Plus, X } from "lucide-react";
+import {
+  ArrowDownUp,
+  Bookmark,
+  Eye,
+  EyeOff,
+  ListFilter,
+  Plus,
+  X,
+} from "lucide-react";
 
 import { updateView } from "@/actions/views";
 import { useBoard } from "@/components/board/board-context";
@@ -31,6 +39,7 @@ import type {
   BoardMode,
   FilterField,
   GroupBy,
+  SortBy,
 } from "@/lib/types";
 import { patchView } from "@/lib/workspace";
 
@@ -39,6 +48,13 @@ const GROUP_ITEMS: { value: GroupBy; label: string }[] = [
   { value: "project", label: "Project" },
   { value: "assignee", label: "Assignee" },
   { value: "deadline", label: "Deadline" },
+];
+
+const SORT_ITEMS: { value: SortBy; label: string }[] = [
+  { value: "manual", label: "Manual" },
+  { value: "title", label: "Title" },
+  { value: "deadline", label: "Deadline" },
+  { value: "created", label: "Newest" },
 ];
 
 const DEADLINE_VALUES = [
@@ -138,6 +154,24 @@ export function BoardToolbar() {
             {GROUP_ITEMS.filter(
               (item) => !(scopedProjectId && item.value === "project"),
             ).map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={config.sortBy}
+          onValueChange={(value) => board.setSortBy(value as SortBy)}
+          items={SORT_ITEMS}
+        >
+          <SelectTrigger aria-label="Sort by">
+            <ArrowDownUp className="text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_ITEMS.map((item) => (
               <SelectItem key={item.value} value={item.value}>
                 {item.label}
               </SelectItem>

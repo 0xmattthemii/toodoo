@@ -1,5 +1,6 @@
 import {
   boolean,
+  doublePrecision,
   jsonb,
   pgTable,
   primaryKey,
@@ -52,6 +53,8 @@ export const projectMembers = pgTable(
     role: text("role", { enum: ["admin", "member"] })
       .notNull()
       .default("member"),
+    /** This member's own sidebar order — ascending, private to them. */
+    position: doublePrecision("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -92,6 +95,8 @@ export const tasks = pgTable("tasks", {
   projectId: uuid("project_id").references(() => projects.id, {
     onDelete: "cascade",
   }),
+  /** Manual board order — ascending, shared by everyone who sees the task. */
+  position: doublePrecision("position").notNull().default(0),
   createdBy: text("created_by")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),

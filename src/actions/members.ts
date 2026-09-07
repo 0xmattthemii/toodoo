@@ -6,7 +6,11 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { projectInvitations, projectMembers, user } from "@/db/schema";
 import { allowedEmailDomains, isEmailDomainAllowed } from "@/lib/auth-flags";
-import { getProject, requireMembership } from "@/lib/data";
+import {
+  getProject,
+  nextProjectMemberPosition,
+  requireMembership,
+} from "@/lib/data";
 import { appUrl, sendEmail } from "@/lib/email";
 import { requireSession } from "@/lib/session";
 import type { Role } from "@/lib/types";
@@ -44,7 +48,12 @@ export async function inviteToProject(
   if (existing) {
     const inserted = await db
       .insert(projectMembers)
-      .values({ projectId, userId: existing.id, role })
+      .values({
+        projectId,
+        userId: existing.id,
+        role,
+        position: nextProjectMemberPosition(existing.id),
+      })
       .onConflictDoNothing()
       .returning();
     if (inserted.length === 0) {

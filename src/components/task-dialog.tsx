@@ -66,7 +66,7 @@ export function TaskDialog({
   people: Person[];
   defaultProjectId?: string;
 }) {
-  const { me, mutate } = useWorkspace();
+  const { me, mutate, tasks } = useWorkspace();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
@@ -179,6 +179,9 @@ export function TaskDialog({
           id,
           ...fields,
           done: false,
+          // Top of the manual order, as the server places it (see
+          // nextTaskPosition); the next snapshot carries the stored value.
+          position: Math.min(1, ...tasks.map((t) => t.position)) - 1,
           createdBy: me.id,
           createdAt: new Date(),
         }),

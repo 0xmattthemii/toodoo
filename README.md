@@ -8,7 +8,7 @@ A simple, minimalist todo app for teams. Self-host it on your own infrastructure
 - **Tasks** with deadlines, status, and one or more assignees
 - **Projects** to group tasks, with member roles (admin / member) and a custom icon + color — create one straight from the task dialog
 - **Invitations** by email — existing users are added instantly, new users join automatically when they sign up
-- **Flexible boards** — list or kanban, an explicit "Group by" control, and stackable filters (field → condition) shown as removable badges; drag & drop tasks across kanban columns or onto a project in the sidebar
+- **Flexible boards** — list or kanban, explicit "Group by" and "Sort by" controls, and stackable filters (field → condition) shown as removable badges; drag tasks by their grip to reorder them (the sort switches to Manual), across kanban columns, or onto a project in the sidebar — and drag sidebar projects to arrange them the way you like
 - **Saved views** — save any grouping/filter combination as a named view with its own icon and color; views live in the sidebar and can be edited, updated, or deleted
 
 ## Stack
