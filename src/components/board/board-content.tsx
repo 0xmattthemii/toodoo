@@ -779,7 +779,10 @@ function DoneCheckbox({
         checked={task.done}
         onCheckedChange={(checked) => onToggleDone(checked === true)}
         className={cn(
-          "rounded-full transition-transform active:scale-90",
+          // The stock checkbox pads its hit area with an invisible `::after`
+          // that reaches 12px past the box on each side, which would swallow
+          // the grip's grab zone. This wrapper is the click zone instead.
+          "rounded-full transition-transform after:hidden active:scale-90",
           task.done && "animate-in zoom-in-75 duration-300",
         )}
         aria-label={`Mark "${task.title}" as ${task.done ? "not done" : "done"}`}
@@ -859,14 +862,17 @@ function TaskRow({
         className,
       )}
     >
+      {/* The grip's grab zone runs from the row's left edge to halfway
+          between its visible dots and the checkbox; the checkbox's click zone
+          takes over from there. The grip icon's dots are ~6px wide inside a
+          16px button, so its own layout edge is that halfway point, and
+          negative margins pull each zone across the padding and gap without
+          moving anything. */}
       <DragHandle
         handle={handle}
         label={`Drag "${task.title}"`}
-        className={cn(!handle && "opacity-100")}
+        className={cn("-ml-1.5 w-5.5 pl-1.5", !handle && "opacity-100")}
       />
-      {/* Negative margins grow the click zone to the row's full height and
-          across the gaps on both sides; the left one also pulls the box
-          closer to the grip than the row's gap would. */}
       <DoneCheckbox
         task={task}
         onToggleDone={onToggleDone}
@@ -923,10 +929,11 @@ function TaskCard({
         className,
       )}
     >
+      {/* Same grab/click zone split as in `TaskRow`. */}
       <DragHandle
         handle={handle}
         label={`Drag "${task.title}"`}
-        className={cn("-my-0.5", !handle && "opacity-100")}
+        className={cn("-my-0.5 -ml-1.5 w-5.5 pl-1.5", !handle && "opacity-100")}
       />
       {/* Stretches the click zone down the card's left edge and across the
           gaps on both sides. */}
