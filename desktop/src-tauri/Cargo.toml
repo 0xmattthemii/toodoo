@@ -27,6 +27,9 @@ serde = { version = "1", features = ["derive"] }
 # the two share one stack instead of compiling a second one.
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Random verifier and its SHA-256 for the browser sign-in handoff. Already in
+# the tree as rustls' crypto provider, so this pulls in nothing new.
+ring = "0.17"
 
 # Thin LTO: near-fat-LTO binary size at a fraction of the link time (all the
 # real work in this shell happens in the webview, not Rust).

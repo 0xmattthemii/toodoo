@@ -83,7 +83,7 @@ Once toodoo is deployed at, say, `https://todo.acme.com`:
      ```
 
    - **Windows** — on the SmartScreen prompt, choose **More info → Run anyway**.
-3. Open Toodoo. On the connect screen, enter your toodoo address (`https://todo.acme.com`) and click **Connect** — or, back in the install dialog, click **Open in Toodoo desktop**, which opens the app with the address filled in. Sign in as usual.
+3. Open Toodoo. On the connect screen, enter your toodoo address (`https://todo.acme.com`) and click **Connect** — or, back in the install dialog, click **Open in Toodoo desktop**, which opens the app with the address filled in. Sign in as usual; **Continue with Google** opens your browser and returns you to the app once it's done (see [Google sign-in](#google-sign-in)).
 
 The app remembers the server, keeps you signed in like the browser does, and updates itself from the GitHub releases it was built from. To connect to a different server later: **profile menu → Switch server…** (on macOS also **Toodoo → Switch Server…** in the menu bar).
 
@@ -112,6 +112,8 @@ Accounts are matched by email, and the two methods merge into one account:
 - **Connect Google later** — Profile → Sign-in methods → Connect.
 
 Email verification is never required to use the app; it only lets the Google merge skip the password step. Setting a password from a Google-only account needs a working mailer (`RESEND_API_KEY`).
+
+In the [desktop app](#desktop-app), "Continue with Google" opens the user's own browser rather than signing in inside the window — Google refuses OAuth in embedded webviews, and the browser brings along the account they're already signed into, their password manager, passkeys, and any identity provider their Workspace domain federates to. The browser hands the session back over the app's `toodoo://` scheme, bound to a secret the app never sent out, so only the app that started the sign-in can collect it. Nothing to configure: the redirect URI above is the only one Google needs.
 
 ## Locking sign-ups to your domain
 

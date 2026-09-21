@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::RwLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
@@ -30,11 +30,27 @@ const MANIFEST_PATH: &str = "/api/desktop/manifest";
 const SERVER_FILE: &str = "server.json";
 /// The `toodoo://connect` deep-link host is reserved for the server picker.
 const CONNECT_HOST: &str = "connect";
-/// Sign-in providers the web app may redirect to. They must render inside the
-/// window (not the system browser) so the OAuth callback lands back in this
-/// webview's cookie jar and the session sticks. Kept to Google's own account
-/// pages; anything else stays out of the trusted shell.
+/// Fallback sign-in providers the web app may redirect to *inside* the
+/// window. Current web app versions send Google sign-in to the user's own
+/// browser instead (see `start_external_sign_in`) — Google refuses OAuth in
+/// embedded webviews, and the browser carries the user's Google session,
+/// passkeys and any federated IdP. This stays for deployments running a web
+/// app older than that flow, and for the account-linking path it can't carry;
+/// those must render here so the callback lands in this webview's cookie jar.
+/// Kept to Google's own account pages; anything else stays out of the shell.
 const SIGN_IN_ORIGINS: &[&str] = &["https://accounts.google.com", "https://accounts.youtube.com"];
+/// The `toodoo://sign-in` deep-link host is reserved for the browser sign-in.
+const SIGN_IN_HOST: &str = "sign-in";
+/// Where the browser flow starts, claims and lands (src/lib/desktop-auth.ts).
+const SIGN_IN_START_PATH: &str = "/api/desktop/auth/start";
+const SIGN_IN_CLAIM_PATH: &str = "/api/desktop/auth/claim";
+const SIGN_IN_FINISH_PATH: &str = "/api/desktop/auth/finish";
+/// Error the web app's login page explains when a handoff doesn't arrive
+/// (OAUTH_ERROR_MESSAGES in src/app/(auth)/social-auth.tsx).
+const SIGN_IN_ERROR: &str = "desktop_handoff_failed";
+/// How long a started sign-in stays claimable: long enough to hunt for a
+/// password, short enough that an abandoned verifier doesn't sit there.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// WKWebView's default user agent lacks the `Version/… Safari/…` tokens, which
 /// makes Google refuse OAuth ("disallowed_useragent"). Present as Safari, as
 /// desktop wrappers commonly do. WebView2 on Windows already looks like Edge.
@@ -66,6 +82,34 @@ struct ServerState {
 #[derive(Serialize, Deserialize)]
 struct SavedServer {
     url: String,
+}
+
+/// A sign-in the user is finishing in their browser.
+struct PendingSignIn {
+    /// Random secret; only its SHA-256 went to the browser, so only this
+    /// process can claim the session the browser ends up with.
+    verifier: String,
+    /// The server the flow was started against.
+    origin: Url,
+    started: Instant,
+}
+
+/// The one sign-in in flight, if any. A second one replaces it.
+#[derive(Default)]
+struct SignInState {
+    pending: RwLock<Option<PendingSignIn>>,
+}
+
+/// Where a `toodoo://` link came from. Starting a browser sign-in is only
+/// honoured from inside the window: the scheme is OS-wide and shared by every
+/// build, so any app or web page can fire one, and none of them should be
+/// able to pop a browser window open.
+#[derive(Clone, Copy, PartialEq)]
+enum LinkSource {
+    /// Navigated to by a page in the app's own window.
+    Window,
+    /// Handed over by the OS: another app, the browser, a second launch.
+    System,
 }
 
 fn server_file(app: &AppHandle) -> Option<PathBuf> {
@@ -124,25 +168,29 @@ struct Manifest {
     app: String,
 }
 
-/// Fetch `<origin>/api/desktop/manifest` and make sure it answers as toodoo,
-/// so a typo or an unrelated site never becomes the trusted origin.
-async fn verify_toodoo_server(origin: &Url) -> Result<(), String> {
+/// Client for the requests the shell itself makes to a server. Redirects are
+/// never followed: a redirect means the request didn't reach toodoo
+/// (http→https, www, a deployment-protection login, …), and following one
+/// would hand the request — and anything in it — to wherever it leads.
+fn http_client() -> Result<reqwest::Client, String> {
     // reqwest is built without a bundled crypto provider (like the updater,
     // so both share one rustls); make sure a provider is installed.
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
-    let host = origin.host_str().unwrap_or_default();
-    let manifest_url = origin.join(MANIFEST_PATH).expect("origin joins a path");
-    let client = reqwest::Client::builder()
+    reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
-        // A redirect means the address isn't where toodoo is served from
-        // (http→https, www, a deployment-protection login, …). Say so
-        // rather than silently trusting wherever it leads.
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|e| format!("Could not set up the connection: {e}"))?;
-    let response = client
+        .map_err(|e| format!("Could not set up the connection: {e}"))
+}
+
+/// Fetch `<origin>/api/desktop/manifest` and make sure it answers as toodoo,
+/// so a typo or an unrelated site never becomes the trusted origin.
+async fn verify_toodoo_server(origin: &Url) -> Result<(), String> {
+    let host = origin.host_str().unwrap_or_default();
+    let manifest_url = origin.join(MANIFEST_PATH).expect("origin joins a path");
+    let response = http_client()?
         .get(manifest_url)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
@@ -231,7 +279,205 @@ fn show_connect_page(app: &AppHandle, suggested: Option<String>) {
     open_in_main_window(app, local_page_url(CONNECT_PAGE));
 }
 
-fn handle_deep_link(app: &AppHandle, url: &Url) {
+fn to_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+/// 32 random bytes as lowercase hex, from the OS. `ring` is already linked in
+/// for TLS, so this costs nothing extra.
+fn random_verifier() -> Result<String, String> {
+    use ring::rand::SecureRandom;
+    let mut buffer = [0u8; 32];
+    ring::rand::SystemRandom::new()
+        .fill(&mut buffer)
+        .map_err(|_| "Could not generate a secure random value.".to_string())?;
+    Ok(to_hex(&buffer))
+}
+
+fn sha256_hex(value: &str) -> String {
+    to_hex(ring::digest::digest(&ring::digest::SHA256, value.as_bytes()).as_ref())
+}
+
+/// The uuid `createHandoff` returns (src/lib/desktop-auth.ts).
+fn is_handoff_id(id: &str) -> bool {
+    id.len() == 36
+        && id.char_indices().all(|(index, c)| match index {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
+/// What a link on the reserved `toodoo://sign-in` host is asking for.
+enum SignInLink {
+    /// `toodoo://sign-in` — the web app asking for a sign-in in the browser.
+    Start,
+    /// `toodoo://sign-in/callback?id=…` — the browser handing one back.
+    Callback(String),
+}
+
+fn parse_sign_in_link(url: &Url) -> Option<SignInLink> {
+    if url.host_str() != Some(SIGN_IN_HOST) {
+        return None;
+    }
+    match url.path().trim_end_matches('/') {
+        "" => Some(SignInLink::Start),
+        "/callback" => url
+            .query_pairs()
+            .find(|(key, _)| key == "id")
+            .map(|(_, value)| value.into_owned())
+            .filter(|id| is_handoff_id(id))
+            .map(SignInLink::Callback),
+        _ => None,
+    }
+}
+
+/// Whether the window is still on the server a sign-in was started against.
+/// A `Switch Server…` in between makes the handoff meaningless — and worse,
+/// navigating to the old origin would push the URL, token and all, out to
+/// the system browser, since only the connected origin renders in the window
+/// (see the navigation handler in `run`).
+fn still_connected_to(app: &AppHandle, origin: &Url) -> bool {
+    current_server(app).is_some_and(|base| base.origin() == origin.origin())
+}
+
+/// Send the window back to the login page, where the web app explains what
+/// went wrong and offers another go.
+fn sign_in_failed(app: &AppHandle, origin: &Url) {
+    let mut url = origin.join("/login").expect("origin joins a path");
+    url.query_pairs_mut().append_pair("error", SIGN_IN_ERROR);
+    open_in_main_window(app, url);
+}
+
+/// Open the user's browser on the server's sign-in page. Only the SHA-256 of
+/// the verifier goes with it, so the session the browser ends up with can
+/// only be collected by this process — the `toodoo://` callback is an
+/// OS-wide scheme any app may register, and on its own it carries nothing
+/// redeemable. Same reasoning as PKCE (RFC 8252) for native apps.
+fn start_external_sign_in(app: &AppHandle) {
+    let Some(origin) = current_server(app) else {
+        // No server yet — there is nothing to sign in to.
+        show_connect_page(app, None);
+        return;
+    };
+    let verifier = match random_verifier() {
+        Ok(verifier) => verifier,
+        Err(error) => {
+            eprintln!("[toodoo] could not start a sign-in: {error}");
+            sign_in_failed(app, &origin);
+            return;
+        }
+    };
+    let mut url = origin.join(SIGN_IN_START_PATH).expect("origin joins a path");
+    url.query_pairs_mut()
+        .append_pair("challenge", &sha256_hex(&verifier));
+    *app.state::<SignInState>().pending.write().unwrap() = Some(PendingSignIn {
+        verifier,
+        origin: origin.clone(),
+        started: Instant::now(),
+    });
+    if app.opener().open_url(url.as_str(), None::<String>).is_err() {
+        *app.state::<SignInState>().pending.write().unwrap() = None;
+        sign_in_failed(app, &origin);
+    }
+}
+
+#[derive(Serialize)]
+struct ClaimRequest<'a> {
+    id: &'a str,
+    verifier: &'a str,
+}
+
+#[derive(Deserialize)]
+struct ClaimResponse {
+    token: String,
+}
+
+/// Trade the handoff id and the verifier for the one-time token that stands
+/// in for the browser's session.
+async fn claim_sign_in_token(origin: &Url, id: &str, verifier: &str) -> Result<String, String> {
+    let url = origin.join(SIGN_IN_CLAIM_PATH).expect("origin joins a path");
+    let response = http_client()?
+        .post(url)
+        .json(&ClaimRequest { id, verifier })
+        .send()
+        .await
+        .map_err(|e| format!("could not reach the server: {}", e.without_url()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("the server refused it (HTTP {})", status.as_u16()));
+    }
+    let claim: ClaimResponse = response
+        .json()
+        .await
+        .map_err(|_| "unexpected reply from the server".to_string())?;
+    if claim.token.is_empty() {
+        return Err("the server returned an empty token".into());
+    }
+    Ok(claim.token)
+}
+
+/// The browser says a sign-in is ready. Claim it and load the page that
+/// redeems it, which is what puts the session cookie in this webview.
+fn finish_external_sign_in(app: &AppHandle, id: String) {
+    // Taken, not read: a replayed or forged callback finds nothing pending.
+    let pending = app.state::<SignInState>().pending.write().unwrap().take();
+    let Some(pending) = pending else {
+        focus_main_window(app);
+        return;
+    };
+    focus_main_window(app);
+    // The window moved on while the browser was busy; drop the handoff
+    // rather than send a token to a server the app no longer trusts.
+    if !still_connected_to(app, &pending.origin) {
+        return;
+    }
+    if pending.started.elapsed() > SIGN_IN_TIMEOUT {
+        sign_in_failed(app, &pending.origin);
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let claimed = claim_sign_in_token(&pending.origin, &id, &pending.verifier).await;
+        // Checked again: the claim is a network round trip, and the user can
+        // switch servers during it.
+        if !still_connected_to(&app, &pending.origin) {
+            return;
+        }
+        match claimed {
+            Ok(token) => {
+                let mut url = pending
+                    .origin
+                    .join(SIGN_IN_FINISH_PATH)
+                    .expect("origin joins a path");
+                url.query_pairs_mut().append_pair("token", &token);
+                open_in_main_window(&app, url);
+            }
+            Err(error) => {
+                eprintln!("[toodoo] could not collect the sign-in: {error}");
+                sign_in_failed(&app, &pending.origin);
+            }
+        }
+    });
+}
+
+fn handle_deep_link(app: &AppHandle, url: &Url, source: LinkSource) {
+    if url.host_str() == Some(SIGN_IN_HOST) {
+        match parse_sign_in_link(url) {
+            // Only the app's own page may send the user to the browser.
+            Some(SignInLink::Start) if source == LinkSource::Window => {
+                start_external_sign_in(app)
+            }
+            Some(SignInLink::Callback(id)) => finish_external_sign_in(app, id),
+            // Malformed, or a start asked for by something outside the app.
+            _ => focus_main_window(app),
+        }
+        return;
+    }
     if url.host_str() == Some(CONNECT_HOST) {
         // `toodoo://connect?server=https://todo.acme.com`, from the web app's
         // install dialog or its "Switch server" entry. It only prefills the
@@ -422,19 +668,21 @@ pub fn run() {
                 current: RwLock::new(current),
                 suggested: RwLock::new(None),
             });
+            app.manage(SignInState::default());
 
             #[cfg(target_os = "macos")]
             install_menu(app)?;
 
             // Lets the web app tell it runs inside the shell (it then offers
-            // "Switch server" instead of "Download desktop app") and on which
-            // OS. The platform is also stamped on <html data-desktop> so the
+            // "Switch server" instead of "Download desktop app", and sends
+            // Google sign-in to the browser via `toodoo://sign-in` rather
+            // than rendering it in the window) and on which OS. The platform is also stamped on <html data-desktop> so the
             // app's CSS can lay the header out around the traffic lights
             // (macOS) before its own scripts run — no jump on load. This runs
             // at document start; WKWebView already has the document element
             // then, WebView2 may not (the attribute is only used on macOS).
             let shell_marker = format!(
-                "window.__TOODOO_DESKTOP__ = Object.freeze({{ version: {version}, platform: {platform} }});\n\
+                "window.__TOODOO_DESKTOP__ = Object.freeze({{ version: {version}, platform: {platform}, externalSignIn: true }});\n\
                  if (document.documentElement) document.documentElement.dataset.desktop = {platform};",
                 version = serde_json::to_string(&app.package_info().version.to_string())
                     .expect("string serializes"),
@@ -463,7 +711,7 @@ pub fn run() {
                     // web app's "Switch server") are handled directly
                     // instead of bouncing through the OS.
                     if url.scheme() == "toodoo" {
-                        handle_deep_link(&handle, url);
+                        handle_deep_link(&handle, url, LinkSource::Window);
                         return false;
                     }
                     // Only the connected server's origin — and the sign-in
@@ -487,7 +735,7 @@ pub fn run() {
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    handle_deep_link(&handle, &url);
+                    handle_deep_link(&handle, &url, LinkSource::System);
                 }
             });
 
@@ -495,7 +743,7 @@ pub fn run() {
             // on_open_url is registered — replay it (Windows/Linux).
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 for url in urls {
-                    handle_deep_link(app.handle(), &url);
+                    handle_deep_link(app.handle(), &url, LinkSource::System);
                 }
             }
 
@@ -587,6 +835,45 @@ mod tests {
             assert!(covered(page.as_str()), "{input} -> {page}");
         }
         assert!(!covered("http://todo.acme.com/"));
+    }
+
+    #[test]
+    fn hashes_the_verifier_the_way_the_server_does() {
+        // echo -n abc | shasum -a 256
+        assert_eq!(
+            sha256_hex("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let verifier = random_verifier().unwrap();
+        assert_eq!(verifier.len(), 64);
+        assert!(verifier.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert_ne!(verifier, random_verifier().unwrap());
+        assert_eq!(sha256_hex(&verifier).len(), 64);
+    }
+
+    #[test]
+    fn reads_sign_in_links_and_rejects_malformed_ones() {
+        let parse = |url: &str| parse_sign_in_link(&Url::parse(url).unwrap());
+        assert!(matches!(parse("toodoo://sign-in"), Some(SignInLink::Start)));
+        assert!(matches!(parse("toodoo://sign-in/"), Some(SignInLink::Start)));
+        let id = "0e6b2a10-7f3c-4f0a-9c1d-2b8f5a6e4d31";
+        assert!(
+            matches!(parse(&format!("toodoo://sign-in/callback?id={id}")), Some(SignInLink::Callback(got)) if got == id)
+        );
+        for url in [
+            // Not the reserved host at all.
+            "toodoo://auth/callback?id=0e6b2a10-7f3c-4f0a-9c1d-2b8f5a6e4d31",
+            // Reserved host, nothing we serve.
+            "toodoo://sign-in/anything",
+            // Callbacks that carry no usable id.
+            "toodoo://sign-in/callback",
+            "toodoo://sign-in/callback?id=",
+            "toodoo://sign-in/callback?id=../../etc/passwd",
+            "toodoo://sign-in/callback?id=0e6b2a10-7f3c-4f0a-9c1d-2b8f5a6e4d3",
+            "toodoo://sign-in/callback?id=0e6b2a10_7f3c_4f0a_9c1d_2b8f5a6e4d31",
+        ] {
+            assert!(parse(url).is_none(), "{url}");
+        }
     }
 
     #[test]

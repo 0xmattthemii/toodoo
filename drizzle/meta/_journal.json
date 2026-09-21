@@ -43,6 +43,13 @@
       "when": 1788772146531,
       "tag": "0005_manual_ordering",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789849314095,
+      "tag": "0006_desktop_sign_in",
+      "breakpoints": true
     }
   ]
 }

@@ -17,13 +17,30 @@ main README).
   stored in the app's config directory (`server.json`), never in the binary.
 - Loads the server in a native window (WKWebView / WebView2); cookie-based
   Better Auth sessions work as in the browser. Only the connected origin
-  renders in the window — plus Google's sign-in pages, so "Continue with
-  Google" completes inside the app (on macOS the webview presents a Safari
-  user agent, which Google requires). Other web links open in the system
-  browser.
-- Injects `window.__TOODOO_DESKTOP__ = { version, platform }` into every page
-  so the web app knows it's inside the shell (it then shows **Switch server…**
-  in the profile menu instead of **Download desktop app**) and on which OS.
+  renders in the window; other web links open in the system browser.
+- **Google sign-in runs in the user's own browser**, not in the window —
+  Google refuses OAuth in embedded webviews, and the browser brings the
+  account the user is already signed into, their password manager, passkeys
+  and any IdP their Workspace domain federates to. The web app's button
+  navigates to `toodoo://sign-in`; the shell opens
+  `<server>/api/desktop/auth/start?challenge=…` in the browser, keeping the
+  random verifier that challenge is the SHA-256 of. When the browser is done
+  it calls back on `toodoo://sign-in/callback?id=…`, the shell trades that id
+  **and the verifier** for a one-time token at `/api/desktop/auth/claim`, and
+  loads `/api/desktop/auth/finish?token=…` in the window, which is what puts
+  the session cookie in this webview. Because the verifier never left the
+  app, a second app registered for the shared `toodoo://` scheme that
+  intercepts the callback gets an id it cannot redeem — the PKCE reasoning
+  RFC 8252 requires of native apps. The server half is in
+  `src/lib/desktop-auth.ts`. Google's own sign-in origins are still allowed
+  to render in the window, for deployments on a web app that predates this
+  flow and for the account-linking path (below).
+- Injects `window.__TOODOO_DESKTOP__ = { version, platform, externalSignIn }`
+  into every page so the web app knows it's inside the shell (it then shows
+  **Switch server…** in the profile menu instead of **Download desktop app**,
+  and sends Google sign-in to the browser), and on which OS. Shells that
+  predate this flow have no `externalSignIn`, so the web app keeps signing
+  them in inside the window.
 - macOS: the title bar is a transparent overlay (`TitleBarStyle::Overlay`,
   title hidden). The page runs to the top of the window — the sidebar keeps
   its colour and border up to the edge — and the traffic lights are placed in
@@ -38,8 +55,12 @@ main README).
     with that address filled in — this is what the web app's install dialog
     and **Switch server…** use. It never switches silently: the user still
     clicks Connect, so a rogue link can't repoint the app.
+  - `toodoo://sign-in` starts a browser sign-in. Only honoured from a page in
+    the app's own window: the scheme is OS-wide, and no web page should be
+    able to pop a browser open.
+  - `toodoo://sign-in/callback?id=…` delivers a finished browser sign-in.
   - `toodoo://host/path?query` is forwarded to `<server>/host/path?query` in
-    the main window — intended for a future system-browser OAuth callback.
+    the main window.
 - macOS menu bar: **Toodoo → Switch Server…**.
 - Single-instance: relaunching focuses the existing window. Window
   size/position persist across launches.
@@ -54,7 +75,8 @@ pnpm tauri dev
 
 The app starts on the connect screen; enter `http://localhost:3000` (with
 `pnpm dev` running at the repo root) or any deployment. `cargo test` in
-`src-tauri/` covers the address normalization and deep-link mapping.
+`src-tauri/` covers the address normalization, the deep-link mapping and the
+sign-in links.
 
 ## Build installers
 
@@ -179,9 +201,13 @@ own connect screen still works in either.
   connection.
 - **Dragging on pages the app doesn't render** — on macOS the window moves
   only from elements marked `data-tauri-drag-region`, so it can't be dragged
-  while Google's sign-in pages or the webview error page are showing.
-- **Other identity providers** — only Google's sign-in origin is allowed
-  inside the window. A Google Workspace account that federates to a
-  third-party IdP (Okta, Entra, …) is sent to the system browser and the
-  sign-in won't complete in the app; the plan is a system-browser flow that
-  hands the session back through `toodoo://`.
+  while the webview error page is showing.
+- **Linking Google to an unverified password account** — when a Google
+  address matches a password account that hasn't verified its email, Better
+  Auth won't merge them without the password. The browser flow can't carry
+  that step, so it stops with a message and the user signs in with their
+  password in the app, which connects Google in the window (the fallback
+  path). Everything else goes through the browser.
+- **Retiring the in-window fallback** — `SIGN_IN_ORIGINS` and the macOS
+  Safari user agent exist only for shells and deployments older than the
+  browser flow. Both can go once those have aged out.
