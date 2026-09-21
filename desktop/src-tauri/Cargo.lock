@@ -4435,6 +4435,7 @@ name = "toodoo-desktop"
 version = "0.1.1"
 dependencies = [
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

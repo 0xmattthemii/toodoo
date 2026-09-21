@@ -7,8 +7,10 @@ import { toast } from "sonner";
 
 import { GoogleLogo } from "@/components/google-logo";
 import { LoadingButton } from "@/components/loading-button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { authClient } from "@/lib/auth-client";
+import { DESKTOP_SIGN_IN_URL, useDesktopShell } from "@/lib/desktop-shell";
 
 /**
  * Query flag the login page uses to finish a Google sign-in that landed on an
@@ -55,17 +57,39 @@ export function oauthContinuationURL(search: string): string | null {
  * "Continue with Google" button. Preserves an in-flight MCP OAuth
  * authorization via {@link oauthContinuationURL}; errors return to the page
  * the button was clicked on, where useOAuthErrorToast surfaces them.
+ *
+ * In the desktop app this hands off to the user's own browser instead
+ * (`toodoo://sign-in`, see desktop/src-tauri/src/lib.rs): Google refuses
+ * OAuth in embedded webviews, and the browser brings the account the user is
+ * already signed into, their password manager, passkeys, and any Workspace
+ * IdP the domain federates to. The shell returns the session to the window.
  */
 export function GoogleButton() {
+  const shell = useDesktopShell();
   const [loading, setLoading] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+
+  function openBrowser() {
+    setWaiting(true);
+    // The shell intercepts this navigation, so the page stays put.
+    window.location.href = DESKTOP_SIGN_IN_URL;
+  }
 
   async function onClick() {
-    setLoading(true);
     const search = window.location.search;
+    const continuation = oauthContinuationURL(search);
+    // Shells without the flag have no browser flow; an MCP authorization has
+    // to resume on this page, which the handoff can't carry. Both stay in
+    // the window, which the app still allows for Google's own origins.
+    if (shell?.externalSignIn && !continuation) {
+      openBrowser();
+      return;
+    }
+    setLoading(true);
     const query = withoutFlowParams(search).toString();
     const { error } = await authClient.signIn.social({
       provider: "google",
-      callbackURL: oauthContinuationURL(search) ?? "/",
+      callbackURL: continuation ?? "/",
       errorCallbackURL: `${window.location.pathname}${query ? `?${query}` : ""}`,
     });
     // On success the browser navigates away; only errors reach this point.
@@ -73,6 +97,37 @@ export function GoogleButton() {
       toast.error(error.message ?? "Could not sign in with Google");
       setLoading(false);
     }
+  }
+
+  if (waiting) {
+    return (
+      <Alert>
+        <GoogleLogo />
+        <AlertTitle>Finish signing in in your browser</AlertTitle>
+        <AlertDescription className="grid gap-2">
+          <span>
+            Your browser opened a Google sign-in. Toodoo continues here as soon
+            as it&apos;s done.
+          </span>
+          <span className="flex gap-3">
+            <button
+              type="button"
+              onClick={openBrowser}
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              Open it again
+            </button>
+            <button
+              type="button"
+              onClick={() => setWaiting(false)}
+              className="underline-offset-4 hover:underline"
+            >
+              Cancel
+            </button>
+          </span>
+        </AlertDescription>
+      </Alert>
+    );
   }
 
   return (
@@ -145,6 +200,10 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   account_already_linked_to_different_user:
     "This Google account is already connected to another toodoo account.",
   unable_to_link_account: "Could not connect Google to your account.",
+  // Desktop app: the browser signed in but the session couldn't be handed
+  // back through `toodoo://` (see src/lib/desktop-auth.ts).
+  desktop_handoff_failed:
+    "That sign-in couldn't be handed back to the app. Please try again.",
 };
 
 /**

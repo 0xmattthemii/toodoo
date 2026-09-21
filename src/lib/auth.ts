@@ -2,7 +2,7 @@ import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { jwt } from "better-auth/plugins";
+import { jwt, oneTimeToken } from "better-auth/plugins";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -172,6 +172,16 @@ export const auth = betterAuth({
   },
   plugins: [
     jwt(),
+    // Hands a browser session to the desktop app's window. The app signs in
+    // through the user's own browser (Google refuses OAuth in embedded
+    // webviews), then redeems one of these tokens inside its webview, which
+    // is what puts the session cookie there. Server-issued only: no page may
+    // mint itself a transferable session. See src/lib/desktop-auth.ts.
+    oneTimeToken({
+      expiresIn: 3,
+      disableClientRequest: true,
+      storeToken: "hashed",
+    }),
     // OAuth 2.1 authorization server + protected-resource metadata for the
     // MCP endpoint. AI agents register via RFC 7591 dynamic registration,
     // send users through /login + /consent, and call /api/mcp with the
