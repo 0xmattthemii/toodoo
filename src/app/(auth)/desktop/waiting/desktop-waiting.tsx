@@ -10,11 +10,12 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -35,37 +36,21 @@ function useHydrated() {
   );
 }
 
-function Panel({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
-      <CardHeader className="text-center">
-        <CardTitle className="text-xl">{title}</CardTitle>
-        <CardDescription className="text-balance">{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3">{children}</CardContent>
-    </Card>
-  );
-}
-
 export function DesktopWaiting() {
   const shell = useDesktopShell();
   // Only our own auth pages, so the query can't bounce the user elsewhere.
-  const cancelHref =
-    useSearchParams().get("from") === "/signup" ? "/signup" : "/login";
+  const fromSignup = useSearchParams().get("from") === "/signup";
+  const back = fromSignup
+    ? { href: "/signup", label: "Back to sign up", cta: "Continue to sign up" }
+    : { href: "/login", label: "Back to sign in", cta: "Continue to sign in" };
 
   const hydrated = useHydrated();
-  // The window coming back to the front means the user is done in the
-  // browser. The session still has a round trip to go (the shell collects it
-  // over the network), and saying so is the difference between a considered
-  // pause and a page that looks stuck.
+  // The window coming back to the front usually means the user is done in
+  // the browser, and the session still has a round trip to go while the
+  // shell collects it — saying so is the difference between a considered
+  // pause and a screen that looks stuck. "Usually": switching back to the
+  // app by hand looks the same, so this only ever changes wording, never
+  // what the user can do from here.
   const [returned, setReturned] = useState(false);
 
   const inShell = shell?.externalSignIn === true;
@@ -114,42 +99,65 @@ export function DesktopWaiting() {
   // spinner that can never resolve.
   if (hydrated && !inShell) {
     return (
-      <Panel
-        title="Open this from the app"
-        description="This page is part of the Toodoo desktop app's sign-in. Sign in here instead."
-      >
-        <Link
-          href={cancelHref}
-          className={buttonVariants({ variant: "outline", className: "w-full" })}
-        >
-          Continue to sign in
-        </Link>
-      </Panel>
+      <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
+        <CardHeader className="text-center">
+          <CardTitle className="text-xl">Open this from the app</CardTitle>
+          <CardDescription className="text-balance">
+            This page is part of the Toodoo desktop app&apos;s sign-in.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link
+            href={back.href}
+            className={buttonVariants({ className: "w-full" })}
+          >
+            {back.cta}
+          </Link>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <Panel
-      title={returned ? "Signing you in" : "Finish signing in in your browser"}
-      description={
-        returned
-          ? "Picking up the session from your browser. This takes a moment."
-          : "We opened Google in your browser. Toodoo picks the session up as soon as you're done — leave this window where it is."
-      }
-    >
-      <div className="flex items-center justify-center gap-2 py-1 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        {returned ? "Almost there…" : "Waiting for your browser…"}
-      </div>
-      <Button type="button" variant="outline" onClick={openBrowser}>
-        Open the browser again
-      </Button>
-      <Link
-        href={cancelHref}
-        className="text-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-      >
-        Sign in another way
-      </Link>
-    </Panel>
+    <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/[0.04]">
+      {/* One live region: the spinner is decorative, the words carry the
+          state, and they change under the user when the window comes back. */}
+      <CardHeader className="gap-2 text-center" role="status">
+        {/* CardHeader is a grid, so this needs placing in its own cell. */}
+        <Loader2
+          aria-hidden
+          className="size-5 animate-spin justify-self-center text-muted-foreground"
+        />
+        <CardTitle className="text-xl">
+          {returned ? "Signing you in" : "Continue in your browser"}
+        </CardTitle>
+        <CardDescription className="text-balance">
+          {returned
+            ? "Picking up the session from your browser."
+            : "We opened Google in your browser. Toodoo signs you in as soon as you're done."}
+        </CardDescription>
+      </CardHeader>
+      {/* Always offered, in both states: any refocus flips the wording
+          above, including a plain switch back to the app, so this must not
+          be the thing that disappears when it does. */}
+      <CardContent className="text-center text-sm text-muted-foreground">
+        Nothing happening?{" "}
+        <button
+          type="button"
+          onClick={openBrowser}
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          Open the browser again
+        </button>
+      </CardContent>
+      <CardFooter className="justify-center border-t !py-4">
+        <Link
+          href={back.href}
+          className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          {back.label}
+        </Link>
+      </CardFooter>
+    </Card>
   );
 }
