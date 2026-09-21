@@ -22,7 +22,10 @@ main README).
   Google refuses OAuth in embedded webviews, and the browser brings the
   account the user is already signed into, their password manager, passkeys
   and any IdP their Workspace domain federates to. The web app's button
-  navigates to `toodoo://sign-in`; the shell opens
+  moves to its `/desktop/waiting` page, which shows what's going on for the
+  whole trip and only then navigates to `toodoo://sign-in` — assigning
+  `location.href` in the same frame as a render makes the webview drop the
+  pending paint, which left the window looking inert. The shell opens
   `<server>/api/desktop/auth/start?challenge=…` in the browser, keeping the
   random verifier that challenge is the SHA-256 of. When the browser is done
   it calls back on `toodoo://sign-in/callback?id=…`, the shell trades that id
