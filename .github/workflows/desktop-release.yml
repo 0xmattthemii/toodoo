@@ -50,6 +50,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # This job installs nothing — it runs release.mjs, `cargo metadata`
+          # and `gh`. setup-node v5 turns package-manager caching on by
+          # default, which finds pnpm-lock.yaml at the root and then fails
+          # because pnpm isn't on PATH (no pnpm/action-setup here, and none
+          # needed). There is nothing to cache, so switch it off.
+          package-manager-cache: false
 
       # release.mjs refreshes Cargo.lock with `cargo metadata` (no compile).
       - uses: dtolnay/rust-toolchain@stable
