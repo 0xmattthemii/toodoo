@@ -5,6 +5,7 @@ import { CalendarIcon, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
 import { createTask, deleteTask, updateTask } from "@/actions/tasks";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProjectForm } from "@/components/project-form";
 import { UserAvatar } from "@/components/user-avatar";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
@@ -78,6 +79,8 @@ export function TaskDialog({
   // one on top of it. Every task field is controlled state, so the task form
   // can unmount and come back exactly as it was.
   const [pane, setPane] = useState<"task" | "project">("task");
+  // Deleting asks first, in a dialog stacked on this one.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   // Bumped on each visit so the project form starts blank.
   const [projectFormKey, setProjectFormKey] = useState(0);
 
@@ -95,6 +98,7 @@ export function TaskDialog({
       setDeadlineOpen(false);
       setAssigneeIds(task?.assignees.map((person) => person.id) ?? []);
       setPane("task");
+      setConfirmDeleteOpen(false);
     }
   }
 
@@ -195,6 +199,7 @@ export function TaskDialog({
 
   function onDelete() {
     if (!task) return;
+    setConfirmDeleteOpen(false);
     void mutate({
       optimistic: removeTask(task.id),
       action: () => deleteTask(task.id),
@@ -412,7 +417,11 @@ export function TaskDialog({
               </div>
               <DialogFooter className={task ? "sm:justify-between" : undefined}>
                 {task ? (
-                  <Button type="button" variant="destructive" onClick={onDelete}>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                  >
                     <Trash2 />
                     Delete
                   </Button>
@@ -434,6 +443,26 @@ export function TaskDialog({
           </>
         )}
       </DialogContent>
+
+      {/* Inside the Root, so base-ui knows it is stacked on the task dialog:
+          only one backdrop is drawn, and Escape or a press outside takes the
+          confirmation back off without touching the task behind it. */}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title="Delete task?"
+        description={
+          <>
+            <span className="font-medium text-foreground">
+              {task?.title}
+            </span>{" "}
+            will be permanently deleted. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete task"
+        destructive
+        onConfirm={onDelete}
+      />
     </Dialog>
   );
 }
