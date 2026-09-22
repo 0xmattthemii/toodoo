@@ -5,9 +5,14 @@ import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { DialogDepth, useNestedDialog } from "@/components/ui/dialog"
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  return (
+    <DialogDepth>
+      <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+    </DialogDepth>
+  )
 }
 
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
@@ -42,9 +47,20 @@ function AlertDialogContent({
   className,
   ...props
 }: AlertDialogPrimitive.Popup.Props) {
+  const nested = useNestedDialog()
   return (
     <AlertDialogPortal>
-      <AlertDialogOverlay />
+      {/* Nested, base-ui draws no backdrop of its own and its internal one
+          sits below the parent's, leaving the dialog underneath clickable.
+          A transparent one of ours covers it. */}
+      <AlertDialogOverlay
+        forceRender
+        className={
+          nested
+            ? "bg-transparent supports-backdrop-filter:backdrop-blur-none"
+            : undefined
+        }
+      />
       <AlertDialogPrimitive.Popup
         data-slot="alert-dialog-content"
         className={cn(

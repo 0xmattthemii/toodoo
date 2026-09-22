@@ -15,6 +15,11 @@ import "server-only";
  *
  * (3) is the backstop: even a production build that somehow kept DEV_LOGIN
  * would refuse, because a deployment's database is never on localhost.
+ *
+ * What (3) cannot see is a tunnel: a forwarded port to a remote database is
+ * still `localhost` from here. Turn DEV_LOGIN off before pointing a dev server
+ * at anything but the database on this machine, or the button will happily
+ * create its account there.
  */
 export function devLoginEnabled() {
   return (

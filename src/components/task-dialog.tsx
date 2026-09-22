@@ -198,8 +198,9 @@ export function TaskDialog({
   }
 
   function onDelete() {
-    if (!task) return;
+    // Close first: an early return below must not strand the confirmation.
     setConfirmDeleteOpen(false);
+    if (!task) return;
     void mutate({
       optimistic: removeTask(task.id),
       action: () => deleteTask(task.id),

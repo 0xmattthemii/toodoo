@@ -15,12 +15,29 @@ import { XIcon } from "lucide-react"
  */
 const DialogDepthContext = React.createContext(0)
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
+/**
+ * Wraps a dialog root of either kind. Both must count, or a dialog nested in
+ * an alert dialog would think it was the only one and draw a second backdrop.
+ */
+function DialogDepth({ children }: { children: React.ReactNode }) {
   const depth = React.useContext(DialogDepthContext)
   return (
     <DialogDepthContext.Provider value={depth + 1}>
-      <DialogPrimitive.Root data-slot="dialog" {...props} />
+      {children}
     </DialogDepthContext.Provider>
+  )
+}
+
+/** True inside a dialog that is itself inside another one. */
+function useNestedDialog() {
+  return React.useContext(DialogDepthContext) > 1
+}
+
+function Dialog({ ...props }: DialogPrimitive.Root.Props) {
+  return (
+    <DialogDepth>
+      <DialogPrimitive.Root data-slot="dialog" {...props} />
+    </DialogDepth>
   )
 }
 
@@ -60,7 +77,7 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
 }) {
-  const nested = React.useContext(DialogDepthContext) > 1
+  const nested = useNestedDialog()
   return (
     <DialogPortal>
       {/* Base UI drops a nested dialog's backdrop so the parent isn't dimmed
@@ -176,6 +193,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogDepth,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -185,4 +203,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  useNestedDialog,
 }
