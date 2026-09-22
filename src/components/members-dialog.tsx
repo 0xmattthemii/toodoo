@@ -11,6 +11,7 @@ import {
   revokeInvitation,
   updateMemberRole,
 } from "@/actions/members";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingButton } from "@/components/loading-button";
 import { UserAvatar } from "@/components/user-avatar";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
@@ -42,6 +43,11 @@ import {
   setMemberRole,
 } from "@/lib/workspace";
 
+/** The removal a confirmation is currently asking about. */
+type Pending =
+  | { kind: "member"; id: string; name: string; self: boolean }
+  | { kind: "invitation"; id: string; email: string };
+
 const ROLE_ITEMS = [
   { value: "member", label: "Member" },
   { value: "admin", label: "Admin" },
@@ -61,6 +67,10 @@ export function MembersDialog({
   const members = membersOf(projectId);
   const invitations = invitationsOf(projectId);
   const [inviteRole, setInviteRole] = useState<Role>("member");
+  // What the confirmation is about, kept after it closes so its copy doesn't
+  // change mid-animation; `confirming` is what opens and closes it.
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [confirming, setConfirming] = useState(false);
   // Only inviting waits for the server: whether the address belongs to an
   // existing account (added right away) or not (invited) is its answer.
   const [inviting, startInviting] = useTransition();
@@ -123,6 +133,21 @@ export function MembersDialog({
       action: () => revokeInvitation(projectId, invitationId),
       failure: "Could not revoke the invitation",
     });
+  }
+
+  function ask(next: Pending) {
+    setPending(next);
+    setConfirming(true);
+  }
+
+  function onConfirm() {
+    setConfirming(false);
+    if (!pending) return;
+    if (pending.kind === "member") {
+      onRemove(pending.id);
+    } else {
+      onRevoke(pending.id);
+    }
   }
 
   return (
@@ -218,8 +243,19 @@ export function MembersDialog({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`Remove ${member.name}`}
-                  onClick={() => onRemove(member.id)}
+                  aria-label={
+                    member.id === currentUserId
+                      ? "Leave this project"
+                      : `Remove ${member.name}`
+                  }
+                  onClick={() =>
+                    ask({
+                      kind: "member",
+                      id: member.id,
+                      name: member.name,
+                      self: member.id === currentUserId,
+                    })
+                  }
                 >
                   <X />
                 </Button>
@@ -250,7 +286,13 @@ export function MembersDialog({
                     variant="ghost"
                     size="icon-sm"
                     aria-label={`Revoke invitation for ${invitation.email}`}
-                    onClick={() => onRevoke(invitation.id)}
+                    onClick={() =>
+                      ask({
+                        kind: "invitation",
+                        id: invitation.id,
+                        email: invitation.email,
+                      })
+                    }
                   >
                     <X />
                   </Button>
@@ -260,6 +302,54 @@ export function MembersDialog({
           </>
         ) : null}
       </DialogContent>
+
+      {/* Inside the Root, so base-ui stacks it on this dialog: one backdrop,
+          and Escape or a press outside takes only the confirmation away.
+          `pending` outlives the dialog, so its copy holds still on the way
+          out. */}
+      {pending ? (
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          title={
+            pending.kind === "invitation"
+              ? "Revoke invitation?"
+              : pending.self
+                ? "Leave this project?"
+                : `Remove ${pending.name}?`
+          }
+          description={
+            pending.kind === "invitation" ? (
+              <>
+                <span className="font-medium text-foreground">
+                  {pending.email}
+                </span>{" "}
+                will no longer be able to join the project with this
+                invitation.
+              </>
+            ) : pending.self ? (
+              "You will lose access to this project and its tasks. An admin has to invite you back."
+            ) : (
+              <>
+                <span className="font-medium text-foreground">
+                  {pending.name}
+                </span>{" "}
+                will lose access to this project. Their tasks stay where they
+                are.
+              </>
+            )
+          }
+          confirmLabel={
+            pending.kind === "invitation"
+              ? "Revoke invitation"
+              : pending.self
+                ? "Leave project"
+                : "Remove"
+          }
+          destructive
+          onConfirm={onConfirm}
+        />
+      ) : null}
     </Dialog>
   );
 }

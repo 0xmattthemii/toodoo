@@ -7,8 +7,38 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
+/**
+ * How many dialogs deep the subtree is. Base UI knows a dialog is nested but
+ * doesn't expose it to us, and a nested dialog has to be dressed differently:
+ * it keeps the backdrop it already sits behind instead of laying a second one
+ * over it.
+ */
+const DialogDepthContext = React.createContext(0)
+
+/**
+ * Wraps a dialog root of either kind. Both must count, or a dialog nested in
+ * an alert dialog would think it was the only one and draw a second backdrop.
+ */
+function DialogDepth({ children }: { children: React.ReactNode }) {
+  const depth = React.useContext(DialogDepthContext)
+  return (
+    <DialogDepthContext.Provider value={depth + 1}>
+      {children}
+    </DialogDepthContext.Provider>
+  )
+}
+
+/** True inside a dialog that is itself inside another one. */
+function useNestedDialog() {
+  return React.useContext(DialogDepthContext) > 1
+}
+
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  return (
+    <DialogDepth>
+      <DialogPrimitive.Root data-slot="dialog" {...props} />
+    </DialogDepth>
+  )
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -47,13 +77,28 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
 }) {
+  const nested = useNestedDialog()
   return (
     <DialogPortal>
-      <DialogOverlay />
+      {/* Base UI drops a nested dialog's backdrop so the parent isn't dimmed
+          twice. Render it anyway, fully transparent: it is the top-most
+          surface, so a press outside lands on it and dismisses this dialog
+          alone, leaving the one underneath open. */}
+      <DialogOverlay
+        forceRender
+        className={
+          nested
+            ? "bg-transparent supports-backdrop-filter:backdrop-blur-none"
+            : undefined
+        }
+      />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Pushed back while a dialog sits on top of it, in place of the
+          // backdrop that one doesn't render.
+          "after:pointer-events-none after:absolute after:inset-0 after:rounded-xl after:bg-black/10 after:opacity-0 after:transition-opacity after:duration-100 data-nested-dialog-open:after:opacity-100",
           className
         )}
         {...props}
@@ -148,6 +193,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogDepth,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -157,4 +203,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  useNestedDialog,
 }
