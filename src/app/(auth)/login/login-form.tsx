@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { devSignIn } from "@/actions/dev-login";
 import { GoogleLogo } from "@/components/google-logo";
 import { LoadingButton } from "@/components/loading-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -29,10 +30,18 @@ import {
   withoutFlowParams,
 } from "../social-auth";
 
-export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
+export function LoginForm({
+  googleEnabled,
+  devLoginEmail,
+}: {
+  googleEnabled: boolean;
+  /** Set only on a local dev server — see src/lib/dev-login.ts. */
+  devLoginEmail?: string | null;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const [loading, setLoading] = useState(false);
+  const [devLoading, setDevLoading] = useState(false);
   useOAuthErrorToast();
 
   // A Google sign-in matched this email's password account, but the account
@@ -78,6 +87,18 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
 
     if (continuation) {
       window.location.href = continuation;
+      return;
+    }
+    router.push("/");
+    router.refresh();
+  }
+
+  async function onDevSignIn() {
+    setDevLoading(true);
+    const { error } = await devSignIn();
+    if (error) {
+      setDevLoading(false);
+      toast.error(error);
       return;
     }
     router.push("/");
@@ -141,6 +162,23 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
             {linkGoogle ? "Sign in and connect Google" : "Sign in"}
           </LoadingButton>
         </form>
+        {devLoginEmail ? (
+          <div className="grid gap-2 rounded-lg border border-dashed p-3">
+            <p className="text-xs text-muted-foreground">
+              This server is running locally with{" "}
+              <span className="font-mono">DEV_LOGIN=1</span>.
+            </p>
+            <LoadingButton
+              type="button"
+              variant="outline"
+              className="w-full"
+              loading={devLoading}
+              onClick={onDevSignIn}
+            >
+              Sign in as {devLoginEmail}
+            </LoadingButton>
+          </div>
+        ) : null}
       </CardContent>
       <CardFooter className="justify-center border-t !py-4">
         <p className="text-sm text-muted-foreground">
