@@ -8,5 +8,5 @@ import { ErrorState } from "@/components/error-state";
  * boundary and falls through to the root one.
  */
 export default function AppPageError({ retry }: { retry: () => void }) {
-  return <ErrorState retry={retry} className="h-full" />;
+  return <ErrorState scope="page" retry={retry} className="h-full" />;
 }

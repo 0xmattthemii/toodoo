@@ -19,10 +19,12 @@ const AUTO_RETRY_GIVE_UP_MS = 10_000;
 const AUTO_RETRY_WINDOW_MS = 30_000;
 
 /**
- * Module scope, so it outlives the boundary remounting after a retry but not
- * a page load — a fresh document gets its own automatic retry.
+ * When each boundary last retried on its own, keyed by `scope`. Module
+ * scope, so it outlives the boundary remounting after a retry but not a page
+ * load — a fresh document gets its own automatic retry. Per boundary, so the
+ * board and the page failing together each get theirs.
  */
-let lastAutoRetryAt = 0;
+const lastAutoRetryAt = new Map<string, number>();
 
 /**
  * What an error boundary renders in place of the part of the page that
@@ -39,9 +41,12 @@ let lastAutoRetryAt = 0;
  * may be what broke.
  */
 export function ErrorState({
+  scope,
   retry,
   className,
 }: {
+  /** Names the boundary, so its retries are counted apart from the others'. */
+  scope: string;
   retry: () => void;
   className?: string;
 }) {
@@ -56,18 +61,19 @@ export function ErrorState({
   useEffect(() => {
     const timers = [
       setTimeout(() => {
-        if (Date.now() - lastAutoRetryAt < AUTO_RETRY_WINDOW_MS) {
+        const last = lastAutoRetryAt.get(scope) ?? 0;
+        if (Date.now() - last < AUTO_RETRY_WINDOW_MS) {
           setRecovering(false);
           return;
         }
-        lastAutoRetryAt = Date.now();
+        lastAutoRetryAt.set(scope, Date.now());
         retryRef.current();
       }, AUTO_RETRY_DELAY_MS),
       // Still here: the retry's request never came back.
       setTimeout(() => setRecovering(false), AUTO_RETRY_GIVE_UP_MS),
     ];
     return () => timers.forEach(clearTimeout);
-  }, []);
+  }, [scope]);
 
   return (
     // In the desktop app the empty area moves the window (inert in a browser).

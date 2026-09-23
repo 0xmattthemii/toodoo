@@ -8,5 +8,5 @@ import { ErrorState } from "@/components/error-state";
  * "Try again" instead of Next.js's built-in full-document error page.
  */
 export default function RootError({ retry }: { retry: () => void }) {
-  return <ErrorState retry={retry} className="min-h-dvh" />;
+  return <ErrorState scope="root" retry={retry} className="min-h-dvh" />;
 }
