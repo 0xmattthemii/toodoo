@@ -51,11 +51,13 @@ const SIGN_IN_ERROR: &str = "desktop_handoff_failed";
 /// How long a started sign-in stays claimable: long enough to hunt for a
 /// password, short enough that an abandoned verifier doesn't sit there.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-/// WKWebView's default user agent lacks the `Version/… Safari/…` tokens, which
-/// makes Google refuse OAuth ("disallowed_useragent"). Present as Safari, as
-/// desktop wrappers commonly do. WebView2 on Windows already looks like Edge.
+/// Where the Safari that ships the system's WebKit — the engine this window
+/// runs — records its version.
 #[cfg(target_os = "macos")]
-const MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+const SAFARI_INFO_PLIST: &str = "/Applications/Safari.app/Contents/Info.plist";
+/// Only used when that file can't be read; it will age, the read won't.
+#[cfg(target_os = "macos")]
+const FALLBACK_SAFARI_VERSION: &str = "26.0";
 #[cfg(target_os = "macos")]
 const SWITCH_SERVER_MENU_ID: &str = "switch-server";
 /// macOS draws the title bar as a transparent overlay: the page runs up to
@@ -245,6 +247,43 @@ fn local_page_url(page: &str) -> Url {
     Url::parse(base)
         .and_then(|base| base.join(page))
         .expect("valid local page URL")
+}
+
+/// WKWebView's default user agent lacks the `Version/… Safari/…` tokens, which
+/// makes Google refuse OAuth ("disallowed_useragent"). Present as Safari, as
+/// desktop wrappers commonly do. WebView2 on Windows already looks like Edge.
+///
+/// The version is the installed Safari's, never a fixed one: a user agent
+/// that names an older browser than the engine behind it is the kind of
+/// mismatch bot defences such as Vercel's firewall flag, and they then stop
+/// the app's background requests at their security checkpoint.
+#[cfg(target_os = "macos")]
+fn macos_user_agent() -> String {
+    let version = fs::read_to_string(SAFARI_INFO_PLIST)
+        .ok()
+        .and_then(|plist| safari_version(&plist))
+        .unwrap_or_else(|| FALLBACK_SAFARI_VERSION.to_string());
+    format!(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15"
+    )
+}
+
+/// Safari's `CFBundleShortVersionString` from its XML Info.plist, cut to
+/// `major.minor` the way Safari's own user agent spells it (26.5.1 → 26.5).
+#[cfg(target_os = "macos")]
+fn safari_version(plist: &str) -> Option<String> {
+    let value = plist
+        .split("<key>CFBundleShortVersionString</key>")
+        .nth(1)?
+        .trim_start()
+        .strip_prefix("<string>")?
+        .split("</string>")
+        .next()?;
+    let is_number = |part: &&str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    let mut parts = value.trim().split('.');
+    let major = parts.next().filter(is_number)?;
+    let minor = parts.next().filter(is_number).unwrap_or("0");
+    Some(format!("{major}.{minor}"))
 }
 
 fn is_local_ui(url: &Url) -> bool {
@@ -697,7 +736,7 @@ pub fn run() {
                 .initialization_script(shell_marker);
             #[cfg(target_os = "macos")]
             let builder = builder
-                .user_agent(MACOS_USER_AGENT)
+                .user_agent(&macos_user_agent())
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
                 .traffic_light_position(TRAFFIC_LIGHT_POSITION);
@@ -758,6 +797,30 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_safari_version_as_major_minor() {
+        let plist = |version: &str| {
+            format!(
+                "<dict>\n\t<key>CFBundleName</key>\n\t<string>Safari</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>{version}</string>\n</dict>"
+            )
+        };
+        assert_eq!(safari_version(&plist("26.5.1")).as_deref(), Some("26.5"));
+        assert_eq!(safari_version(&plist("26.5")).as_deref(), Some("26.5"));
+        assert_eq!(safari_version(&plist("27")).as_deref(), Some("27.0"));
+        assert_eq!(safari_version(&plist("")), None);
+        assert_eq!(safari_version(&plist("beta")), None);
+        assert_eq!(safari_version("<dict></dict>"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn presents_as_the_installed_safari() {
+        let agent = macos_user_agent();
+        assert!(agent.ends_with(" Safari/605.1.15"), "{agent}");
+        assert!(!agent.contains("Version/17.6"), "{agent}");
+    }
 
     #[test]
     fn normalizes_typed_addresses_to_an_https_origin() {

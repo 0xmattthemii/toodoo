@@ -28,6 +28,7 @@ export class WorkspaceErrorBoundary extends Component<
     if (this.state.failed) {
       return (
         <ErrorState
+          scope="workspace"
           retry={() => this.setState({ failed: false })}
           className="h-full"
         />
