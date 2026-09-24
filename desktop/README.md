@@ -5,7 +5,7 @@ native window. One build works with any deployment: on first launch the app
 shows a connect screen asking for the server address, verifies it, remembers
 it, and loads it. Self-hosters don't build anything — their users install the
 upstream release and point it at their server (see the
-[install steps](../README.md#installing-the-desktop-app-for-your-users) in the
+[install steps](../README.md#installing-the-desktop-app) in the
 main README).
 
 ## What it does
