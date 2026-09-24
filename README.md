@@ -24,7 +24,7 @@ pnpm drizzle-kit migrate
 pnpm dev
 ```
 
-No Postgres at hand? Start a throwaway one:
+No Postgres at hand? Start a throwaway one and set `DATABASE_URL=postgresql://postgres:postgres@localhost:54329/toodoo`:
 
 ```bash
 docker run -d --name toodoo-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=toodoo -p 54329:5432 postgres:17-alpine
@@ -61,7 +61,7 @@ The domain lock is enforced on the server for every sign-in method, and invitati
 2. Add `<your-base-url>/api/auth/callback/google` as a redirect URI, and the base URL as a JavaScript origin, for each environment.
 3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-Google and password sign-ins with the same email share one account. To add the missing method later, go to **Profile → Sign-in methods**.
+Google and password sign-ins with the same email share one account. To add the missing method later, go to **Profile → Sign-in methods** (setting a password needs `RESEND_API_KEY`).
 
 ## Desktop app
 
