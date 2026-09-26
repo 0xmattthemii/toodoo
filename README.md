@@ -32,6 +32,17 @@ docker run -d --name toodoo-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=tood
 
 Open [http://localhost:3000](http://localhost:3000) and create an account.
 
+### Tests
+
+The tests run the server actions against a real Postgres database, which they erase first. Point them at a separate local database whose name contains `test`:
+
+```bash
+docker exec toodoo-pg createdb -U postgres toodoo_test
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:54329/toodoo_test pnpm test
+```
+
+CI runs lint, these tests, a production build and the desktop app's unit tests on every pull request.
+
 ## Deploy your own
 
 - **Vercel:** the **Deploy with Vercel** button above forks the repo and asks for `DATABASE_URL` and `BETTER_AUTH_SECRET`. After the first deploy, run `pnpm drizzle-kit migrate` against your database.
