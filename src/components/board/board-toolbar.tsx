@@ -297,7 +297,6 @@ export function BoardToolbar() {
         onOpenChange={board.setDialogOpen}
         task={board.dialogTask}
         projects={options.projects}
-        people={options.people}
         defaultProjectId={scopedProjectId}
       />
     </div>

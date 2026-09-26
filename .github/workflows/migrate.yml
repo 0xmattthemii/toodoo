@@ -1,9 +1,11 @@
 name: Database migrations
 
 # Applies pending drizzle migrations to the production database whenever a
-# push to main touches them, so a deploy never runs ahead of its schema.
-# Vercel deploys the same push in parallel; migrations here are additive
-# (new columns with defaults, backfills), so either order is safe.
+# push to main touches them. Vercel deploys the same push in parallel, so
+# nothing orders the two: each migration has to keep working with the code
+# on both sides of it — the old deployment against the new schema, and the
+# new deployment for the moment it may run ahead. A change that can't (a
+# column dropped or renamed while code still reads it) ships in two steps.
 #
 # Requires the DATABASE_URL secret: a connection string for a role that owns
 # the schema (Neon's `neondb_owner`, or the role in DATABASE_URL on Vercel).

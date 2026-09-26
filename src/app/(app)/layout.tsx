@@ -60,7 +60,7 @@ async function WorkspaceShell({
   children: React.ReactNode;
 }) {
   try {
-    await acceptPendingInvitations(me.id, me.email);
+    await acceptPendingInvitations(me.id);
   } catch {
     // Best effort — a failed invitation sync should never block the app.
   }

@@ -1,5 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
+  date,
   doublePrecision,
   jsonb,
   pgTable,
@@ -59,7 +62,11 @@ export const projectMembers = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.userId] })],
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    // `enum` above only narrows the TypeScript type; Postgres enforces it.
+    check("project_members_role_check", sql`${table.role} in ('admin', 'member')`),
+  ],
 );
 
 export const projectInvitations = pgTable(
@@ -83,7 +90,14 @@ export const projectInvitations = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [uniqueIndex("project_invitations_project_email_idx").on(table.projectId, table.email)],
+  (table) => [
+    uniqueIndex("project_invitations_project_email_idx").on(table.projectId, table.email),
+    check("project_invitations_role_check", sql`${table.role} in ('admin', 'member')`),
+    check(
+      "project_invitations_status_check",
+      sql`${table.status} in ('pending', 'accepted')`,
+    ),
+  ],
 );
 
 export const tasks = pgTable("tasks", {
@@ -91,7 +105,8 @@ export const tasks = pgTable("tasks", {
   title: text("title").notNull(),
   description: text("description"),
   done: boolean("done").notNull().default(false),
-  deadline: timestamp("deadline", { withTimezone: true }),
+  /** A calendar day, not an instant: see lib/deadline.ts. */
+  deadline: date("deadline", { mode: "string" }),
   projectId: uuid("project_id").references(() => projects.id, {
     onDelete: "cascade",
   }),
