@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import { db } from "@/db";
@@ -27,6 +27,11 @@ import type {
   ProjectMembership,
   WorkspaceSnapshot,
 } from "@/lib/workspace";
+
+/** The database, or a transaction on it: whatever a query should run on. */
+export type Executor =
+  | typeof db
+  | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * The position a brand-new membership takes: the bottom of that user's
@@ -84,8 +89,12 @@ export async function getUserProjects(
   return rows;
 }
 
-export async function getMembership(projectId: string, userId: string) {
-  const [membership] = await db
+export async function getMembership(
+  projectId: string,
+  userId: string,
+  executor: Executor = db,
+) {
+  const [membership] = await executor
     .select()
     .from(projectMembers)
     .where(
@@ -101,8 +110,9 @@ export async function requireMembership(
   projectId: string,
   userId: string,
   role?: Role,
+  executor: Executor = db,
 ) {
-  const membership = await getMembership(projectId, userId);
+  const membership = await getMembership(projectId, userId, executor);
   if (!membership) {
     throw new Error("You are not a member of this project");
   }
@@ -147,6 +157,103 @@ export async function getPendingInvitations(
       ),
     )
     .orderBy(asc(projectInvitations.createdAt));
+}
+
+/**
+ * Runs `fn` in a transaction that holds a row lock on the project, so that
+ * changes to its membership happen one at a time. Rules such as "a project
+ * keeps at least one admin" are a count read before a write; two requests
+ * reading the count side by side would both pass it (two admins each
+ * stepping down leave none). Whoever takes the lock second waits, then reads
+ * what the first committed. Checks that depend on the membership — including
+ * the caller's own permission — belong inside `fn`, on `tx`.
+ */
+export async function withProjectLock<T>(
+  projectId: string,
+  fn: (tx: Executor) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .for("update");
+    if (!locked) throw new Error("Project not found");
+    return fn(tx);
+  });
+}
+
+/**
+ * Refuses assignees who could never see the task: on a project task anyone
+ * who isn't a member of that project; on a task outside any project anyone
+ * the user doesn't share a project with (the people the task dialog offers).
+ * `keep` are the task's current assignees, allowed to stay on a task outside
+ * any project even once the two stop sharing one.
+ */
+export async function requireAssignable(
+  userId: string,
+  projectId: string | null,
+  assigneeIds: string[],
+  keep: string[] = [],
+) {
+  // Outside a project, you can always take a task yourself.
+  const candidates = projectId
+    ? assigneeIds
+    : assigneeIds.filter((id) => id !== userId);
+  if (candidates.length === 0) return;
+
+  const rows = await db
+    .selectDistinct({ userId: projectMembers.userId })
+    .from(projectMembers)
+    .where(
+      and(
+        inArray(projectMembers.userId, candidates),
+        projectId
+          ? eq(projectMembers.projectId, projectId)
+          : inArray(
+              projectMembers.projectId,
+              db
+                .select({ id: projectMembers.projectId })
+                .from(projectMembers)
+                .where(eq(projectMembers.userId, userId)),
+            ),
+      ),
+    );
+  const allowed = new Set(rows.map((row) => row.userId));
+  if (!projectId) keep.forEach((id) => allowed.add(id));
+  if (candidates.some((id) => !allowed.has(id))) {
+    throw new Error(
+      projectId
+        ? "Tasks can only be assigned to members of their project"
+        : "Tasks can only be assigned to people you share a project with",
+    );
+  }
+}
+
+/**
+ * Unassigns everyone on the task who isn't a member of `projectId` — run when
+ * a task moves into a project, whose members are the only ones who can see
+ * it there.
+ */
+export async function unassignNonMembers(
+  executor: Executor,
+  taskId: string,
+  projectId: string,
+) {
+  await executor
+    .delete(taskAssignees)
+    .where(
+      and(
+        eq(taskAssignees.taskId, taskId),
+        notInArray(
+          taskAssignees.userId,
+          executor
+            .select({ userId: projectMembers.userId })
+            .from(projectMembers)
+            .where(eq(projectMembers.projectId, projectId)),
+        ),
+      ),
+    );
 }
 
 /**
@@ -231,7 +338,13 @@ const taskSelection = {
   createdAt: tasks.createdAt,
 };
 
-/** Tasks the user may see: in their projects, created by them, or assigned. */
+/**
+ * Tasks the user may see, the same rule as `canAccessTask`. A project's tasks
+ * belong to the project: its current members see them, and nobody else —
+ * not even whoever created one or is assigned to it, so removing someone
+ * from a project takes all of its tasks away from them. A task outside any
+ * project is its creator's and its assignees'.
+ */
 function visibleTasksWhere(userId: string) {
   const myProjects = db
     .select({ id: projectMembers.projectId })
@@ -239,23 +352,28 @@ function visibleTasksWhere(userId: string) {
     .where(eq(projectMembers.userId, userId));
 
   return or(
-    eq(tasks.createdBy, userId),
     inArray(tasks.projectId, myProjects),
-    exists(
-      db
-        .select({ taskId: taskAssignees.taskId })
-        .from(taskAssignees)
-        .where(
-          and(
-            eq(taskAssignees.taskId, tasks.id),
-            eq(taskAssignees.userId, userId),
-          ),
+    and(
+      isNull(tasks.projectId),
+      or(
+        eq(tasks.createdBy, userId),
+        exists(
+          db
+            .select({ taskId: taskAssignees.taskId })
+            .from(taskAssignees)
+            .where(
+              and(
+                eq(taskAssignees.taskId, tasks.id),
+                eq(taskAssignees.userId, userId),
+              ),
+            ),
         ),
+      ),
     ),
   );
 }
 
-/** Tasks in the user's projects, created by them, or assigned to them. */
+/** Tasks in the user's projects, and their own or assigned tasks outside any. */
 export async function getVisibleTasks(userId: string): Promise<TaskWithMeta[]> {
   const rows = await db
     .select(taskSelection)
@@ -300,10 +418,18 @@ export async function getProject(projectId: string) {
   return project ?? null;
 }
 
-/** A task is accessible if the user created it, is assigned, or is a member of its project. */
+/**
+ * The task, if the user may see and change it: a member of its project, or
+ * for a task outside any project its creator or an assignee. See
+ * `visibleTasksWhere`, which is the same rule as a query.
+ */
 export async function canAccessTask(taskId: string, userId: string) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) return null;
+  if (task.projectId) {
+    const membership = await getMembership(task.projectId, userId);
+    return membership ? task : null;
+  }
   if (task.createdBy === userId) return task;
   const [assignee] = await db
     .select()
@@ -311,12 +437,7 @@ export async function canAccessTask(taskId: string, userId: string) {
     .where(
       and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.userId, userId)),
     );
-  if (assignee) return task;
-  if (task.projectId) {
-    const membership = await getMembership(task.projectId, userId);
-    if (membership) return task;
-  }
-  return null;
+  return assignee ? task : null;
 }
 
 export async function getUserViews(userId: string): Promise<ViewSummary[]> {
@@ -352,33 +473,59 @@ export async function getView(
   };
 }
 
-/** Turn pending invitations matching the user's email into memberships. */
-export async function acceptPendingInvitations(userId: string, email: string) {
+/**
+ * Turns pending invitations to the user's email address into memberships —
+ * once that address is verified. An invitation is addressed to a mailbox,
+ * and an account merely *claims* one: a password sign-up works before its
+ * owner has clicked anything in their inbox. Without this check, anyone who
+ * registered an invited address before its owner did would walk into the
+ * project, as an admin if that is what the invitation was for. Unverified
+ * accounts keep their invitations pending; they are accepted on the first
+ * page load after the address is verified (or a Google sign-in, which
+ * verifies it).
+ */
+export async function acceptPendingInvitations(userId: string) {
+  const [account] = await db
+    .select({ email: user.email, emailVerified: user.emailVerified })
+    .from(user)
+    .where(eq(user.id, userId));
+  if (!account?.emailVerified) return;
+
   const pending = await db
     .select()
     .from(projectInvitations)
     .where(
       and(
-        eq(projectInvitations.email, email.toLowerCase()),
+        eq(projectInvitations.email, account.email.toLowerCase()),
         eq(projectInvitations.status, "pending"),
       ),
     );
-  if (pending.length === 0) return;
 
   for (const invitation of pending) {
-    await db
-      .insert(projectMembers)
-      .values({
-        projectId: invitation.projectId,
-        userId,
-        role: invitation.role,
-        position: nextProjectMemberPosition(userId),
-      })
-      .onConflictDoNothing();
-    await db
-      .update(projectInvitations)
-      .set({ status: "accepted" })
-      .where(eq(projectInvitations.id, invitation.id));
+    // Claiming the invitation and joining commit together, and only the
+    // request that flips it from pending joins.
+    await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(projectInvitations)
+        .set({ status: "accepted" })
+        .where(
+          and(
+            eq(projectInvitations.id, invitation.id),
+            eq(projectInvitations.status, "pending"),
+          ),
+        )
+        .returning({ id: projectInvitations.id });
+      if (!claimed) return;
+      await tx
+        .insert(projectMembers)
+        .values({
+          projectId: invitation.projectId,
+          userId,
+          role: invitation.role,
+          position: nextProjectMemberPosition(userId),
+        })
+        .onConflictDoNothing();
+    });
   }
 }
 

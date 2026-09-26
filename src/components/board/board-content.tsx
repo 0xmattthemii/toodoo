@@ -6,12 +6,13 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/core";
-import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
+import { format } from "date-fns";
 import { CalendarClock, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { moveTaskToProject, reorderTasks, setTaskDone } from "@/actions/tasks";
 import { useBoard } from "@/components/board/board-context";
+import { dueBucket, groupTasks, type Group } from "@/components/board/grouping";
 import { DragHandle, type DragHandleProps } from "@/components/drag-handle";
 import {
   sidebarProjectFromDropId,
@@ -32,6 +33,7 @@ import {
   previewShifts,
   rowPitch,
 } from "@/lib/ordering";
+import { deadlineDate } from "@/lib/deadline";
 import { cn } from "@/lib/utils";
 import { patchTask, setTaskPositions } from "@/lib/workspace";
 import type {
@@ -41,26 +43,6 @@ import type {
   SortBy,
   TaskWithMeta,
 } from "@/lib/types";
-
-type DueBucket = "overdue" | "today" | "week" | "later" | "none";
-
-const DUE_BUCKET_LABELS: Record<DueBucket, string> = {
-  overdue: "Overdue",
-  today: "Today",
-  week: "This week",
-  later: "Later",
-  none: "No deadline",
-};
-
-function dueBucket(task: Pick<TaskWithMeta, "deadline">): DueBucket {
-  if (!task.deadline) return "none";
-  const date = new Date(task.deadline);
-  const today = startOfDay(new Date());
-  if (isToday(date)) return "today";
-  if (isBefore(date, today)) return "overdue";
-  if (isBefore(date, addDays(today, 7))) return "week";
-  return "later";
-}
 
 function matchesFilter(
   task: TaskWithMeta,
@@ -100,8 +82,8 @@ function compareTasks(a: TaskWithMeta, b: TaskWithMeta, sortBy: SortBy) {
         if (b.deadline) return 1;
         return compareNewest(a, b);
       }
-      const byDeadline =
-        new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      // YYYY-MM-DD sorts as text in date order.
+      const byDeadline = a.deadline.localeCompare(b.deadline);
       return byDeadline !== 0 ? byDeadline : compareNewest(a, b);
     }
     case "created":
@@ -110,8 +92,6 @@ function compareTasks(a: TaskWithMeta, b: TaskWithMeta, sortBy: SortBy) {
       return a.position - b.position || compareNewest(a, b);
   }
 }
-
-type Group = { key: string; label: string; tasks: TaskWithMeta[] };
 
 /** The overlay renders a real row/card, but nothing on it is interactive. */
 const noop = () => {};
@@ -132,7 +112,7 @@ export function BoardContent({
   const board = useBoard();
   const { config, currentUserId, scopedProjectId, setSortBy, showDone } =
     board;
-  const { mutate } = useWorkspace();
+  const { mutate, membersOf, tasks: allTasks } = useWorkspace();
 
   const projectOptions = dialogProjects ?? projects;
 
@@ -153,54 +133,15 @@ export function BoardContent({
     [tasks, config.filters, config.sortBy, currentUserId, showDone],
   );
 
-  const groups = useMemo<Group[]>(() => {
-    const list = filteredTasks;
-    switch (config.groupBy) {
-      case "project": {
-        const result: Group[] = projects
-          .filter(
-            (project) => !scopedProjectId || project.id === scopedProjectId,
-          )
-          .map((project) => ({
-            key: project.id,
-            label: project.name,
-            tasks: list.filter((task) => task.projectId === project.id),
-          }));
-        result.push({
-          key: "none",
-          label: "No project",
-          tasks: list.filter((task) => !task.projectId),
-        });
-        return result;
-      }
-      case "assignee": {
-        const result: Group[] = people.map((person) => ({
-          key: person.id,
-          label: person.name,
-          tasks: list.filter((task) =>
-            task.assignees.some((assignee) => assignee.id === person.id),
-          ),
-        }));
-        const unassigned = list.filter((task) => task.assignees.length === 0);
-        if (unassigned.length > 0) {
-          result.push({ key: "none", label: "Unassigned", tasks: unassigned });
-        }
-        return result.filter((group) => group.tasks.length > 0);
-      }
-      case "deadline": {
-        const order: DueBucket[] = ["overdue", "today", "week", "later", "none"];
-        return order
-          .map((bucket) => ({
-            key: bucket,
-            label: DUE_BUCKET_LABELS[bucket],
-            tasks: list.filter((task) => dueBucket(task) === bucket),
-          }))
-          .filter((group) => group.tasks.length > 0);
-      }
-      default:
-        return [{ key: "all", label: "All tasks", tasks: list }];
-    }
-  }, [filteredTasks, config.groupBy, projects, people, scopedProjectId]);
+  const groups = useMemo(
+    () =>
+      groupTasks(filteredTasks, config.groupBy, {
+        projects,
+        people,
+        scopedProjectId,
+      }),
+    [filteredTasks, config.groupBy, projects, people, scopedProjectId],
+  );
 
   // Both changes show at once and are undone (with a toast) if the server
   // refuses them.
@@ -221,13 +162,26 @@ export function BoardContent({
         ? (projectOptions.find((project) => project.id === projectId)?.name ??
           null)
         : null;
+      // Moving into a project unassigns whoever isn't in it, as the server does.
+      const assignees = allTasks.find((task) => task.id === taskId)?.assignees;
+      const members = projectId ? membersOf(projectId) : null;
+      const patch =
+        members && assignees
+          ? {
+              projectId,
+              projectName,
+              assignees: assignees.filter((person) =>
+                members.some((member) => member.id === person.id),
+              ),
+            }
+          : { projectId, projectName };
       void mutate({
-        optimistic: patchTask(taskId, { projectId, projectName }),
+        optimistic: patchTask(taskId, patch),
         action: () => moveTaskToProject(taskId, projectId),
         failure: "Could not move the task",
       });
     },
-    [projectOptions, mutate],
+    [projectOptions, mutate, membersOf, allTasks],
   );
 
   /**
@@ -817,7 +771,7 @@ function DeadlineChip({
       )}
     >
       <CalendarClock className="size-3.5" />
-      {format(new Date(task.deadline), "MMM d")}
+      {format(deadlineDate(task.deadline), "MMM d")}
     </span>
   );
 }

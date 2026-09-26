@@ -1,0 +1,75 @@
+name: CI
+
+# Lint, tests and a production build for every pull request and push to
+# main. The tests run the real server actions against a throwaway Postgres
+# (see tests/), which is what catches permission and concurrency
+# regressions a build alone never would.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: toodoo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/toodoo_test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm test
+
+      # Also type-checks the whole project, tests included. Nothing connects
+      # to the database at build time, but src/db refuses to load without a
+      # URL, and Better Auth wants a secret.
+      - run: pnpm build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/toodoo_test
+          BETTER_AUTH_SECRET: ci-build-only-not-a-secret
+
+  desktop:
+    # macOS already has everything Tauri links against; Linux would need the
+    # WebKitGTK development packages installed first.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - run: cargo test --locked
+        working-directory: desktop/src-tauri

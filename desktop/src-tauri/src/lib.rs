@@ -220,20 +220,36 @@ async fn verify_toodoo_server(origin: &Url) -> Result<(), String> {
     Ok(())
 }
 
-/// Map a `toodoo://host/path?query#fragment` deep link onto the web app,
-/// e.g. `toodoo://auth/callback?code=x` -> `<server>/auth/callback?code=x`.
-/// Query and fragment are preserved (hash-based OAuth callbacks carry the
-/// token in the fragment).
-fn deep_link_to_web_url(base: &Url, url: &Url) -> Url {
+/// Map a `toodoo://host/path?query#fragment` deep link onto a page of the
+/// web app, e.g. `toodoo://projects/<id>` -> `<server>/projects/<id>`.
+///
+/// Only the app's own pages are reachable this way: the board, a project, a
+/// saved view. Any website or email can hand the OS a `toodoo://` link, and
+/// the window then loads its target as a top-level navigation the server
+/// can't tell from the shell's own. Mapping arbitrary paths would let a link
+/// reach routes such as `/api/desktop/auth/finish?token=…`, which signs the
+/// window into whichever account minted the token (login CSRF). `None` for
+/// anything but a page.
+fn deep_link_to_web_url(base: &Url, url: &Url) -> Option<Url> {
     let path = match url.host_str() {
         Some(host) if !host.is_empty() => format!("/{}{}", host, url.path()),
         _ => url.path().to_string(),
     };
+    let path = path.trim_end_matches('/');
+    let segments: Vec<&str> = path.split('/').skip(1).collect();
+    let is_page = match segments.as_slice() {
+        [] => true,
+        ["projects" | "views", id] => is_uuid(id),
+        _ => false,
+    };
+    if !is_page {
+        return None;
+    }
     let mut target = base.clone();
-    target.set_path(path.trim_end_matches('/'));
+    target.set_path(path);
     target.set_query(url.query());
     target.set_fragment(url.fragment());
-    target
+    Some(target)
 }
 
 /// URL the bundled UI is served from — what `WebviewUrl::App` resolves to:
@@ -342,8 +358,9 @@ fn sha256_hex(value: &str) -> String {
     to_hex(ring::digest::digest(&ring::digest::SHA256, value.as_bytes()).as_ref())
 }
 
-/// The uuid `createHandoff` returns (src/lib/desktop-auth.ts).
-fn is_handoff_id(id: &str) -> bool {
+/// A uuid: what `createHandoff` returns (src/lib/desktop-auth.ts), and what
+/// projects and saved views are keyed by.
+fn is_uuid(id: &str) -> bool {
     id.len() == 36
         && id.char_indices().all(|(index, c)| match index {
             8 | 13 | 18 | 23 => c == '-',
@@ -369,7 +386,7 @@ fn parse_sign_in_link(url: &Url) -> Option<SignInLink> {
             .query_pairs()
             .find(|(key, _)| key == "id")
             .map(|(_, value)| value.into_owned())
-            .filter(|id| is_handoff_id(id))
+            .filter(|id| is_uuid(id))
             .map(SignInLink::Callback),
         _ => None,
     }
@@ -534,7 +551,10 @@ fn handle_deep_link(app: &AppHandle, url: &Url, source: LinkSource) {
         return;
     }
     match current_server(app) {
-        Some(base) => open_in_main_window(app, deep_link_to_web_url(&base, url)),
+        Some(base) => match deep_link_to_web_url(&base, url) {
+            Some(target) => open_in_main_window(app, target),
+            None => focus_main_window(app),
+        },
         None => show_connect_page(app, None),
     }
 }
@@ -940,14 +960,40 @@ mod tests {
     }
 
     #[test]
-    fn maps_deep_links_onto_the_server() {
+    fn maps_deep_links_onto_app_pages() {
         let base = Url::parse("https://todo.acme.com/").unwrap();
-        let link = Url::parse("toodoo://auth/callback?code=x#frag").unwrap();
+        let map = |link: &str| {
+            deep_link_to_web_url(&base, &Url::parse(link).unwrap()).map(|url| url.to_string())
+        };
+        let id = "0e6b2a10-7f3c-4f0a-9c1d-2b8f5a6e4d31";
+        assert_eq!(map("toodoo:///").as_deref(), Some("https://todo.acme.com/"));
+        assert_eq!(map("toodoo://").as_deref(), Some("https://todo.acme.com/"));
         assert_eq!(
-            deep_link_to_web_url(&base, &link).as_str(),
-            "https://todo.acme.com/auth/callback?code=x#frag"
+            map(&format!("toodoo://projects/{id}#frag")),
+            Some(format!("https://todo.acme.com/projects/{id}#frag"))
         );
-        let root = Url::parse("toodoo:///").unwrap();
-        assert_eq!(deep_link_to_web_url(&base, &root).as_str(), "https://todo.acme.com/");
+        assert_eq!(
+            map(&format!("toodoo://views/{id}/")),
+            Some(format!("https://todo.acme.com/views/{id}"))
+        );
+    }
+
+    #[test]
+    fn keeps_deep_links_away_from_everything_but_pages() {
+        let base = Url::parse("https://todo.acme.com/").unwrap();
+        let id = "0e6b2a10-7f3c-4f0a-9c1d-2b8f5a6e4d31";
+        for link in [
+            "toodoo://api/desktop/auth/finish?token=attacker".to_string(),
+            "toodoo:///api/desktop/auth/finish?token=attacker".to_string(),
+            "toodoo://api/auth/sign-out".to_string(),
+            "toodoo://auth/callback?code=x".to_string(),
+            "toodoo://projects/not-an-id".to_string(),
+            "toodoo://projects".to_string(),
+            format!("toodoo://projects/{id}/../../api/desktop/auth/finish"),
+            format!("toodoo://projects/{id}/extra"),
+        ] {
+            let url = Url::parse(&link).unwrap();
+            assert!(deep_link_to_web_url(&base, &url).is_none(), "{link}");
+        }
     }
 }

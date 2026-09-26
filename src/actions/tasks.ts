@@ -10,8 +10,11 @@ import {
   getReorderableTasks,
   nextTaskPosition,
   positionCase,
+  requireAssignable,
   requireMembership,
+  unassignNonMembers,
 } from "@/lib/data";
+import { parseDeadline } from "@/lib/deadline";
 import { isValidId } from "@/lib/ids";
 import { positionSlots } from "@/lib/ordering";
 import { requireSession } from "@/lib/session";
@@ -19,10 +22,18 @@ import { requireSession } from "@/lib/session";
 type TaskInput = {
   title: string;
   description?: string;
-  deadline?: string | null; // ISO string
+  deadline?: string | null; // YYYY-MM-DD, see lib/deadline.ts
   projectId?: string | null;
   assigneeIds?: string[];
 };
+
+async function currentAssigneeIds(taskId: string) {
+  const rows = await db
+    .select({ userId: taskAssignees.userId })
+    .from(taskAssignees)
+    .where(eq(taskAssignees.taskId, taskId));
+  return rows.map((row) => row.userId);
+}
 
 export async function createTask(input: TaskInput & { id?: string }) {
   const session = await requireSession();
@@ -32,11 +43,15 @@ export async function createTask(input: TaskInput & { id?: string }) {
     return { error: "Invalid task id" };
   }
 
+  const deadline = input.deadline ? parseDeadline(input.deadline) : null;
+  if (deadline === undefined) return { error: "Invalid deadline" };
+
   if (input.projectId) {
     await requireMembership(input.projectId, session.user.id);
   }
 
   const assigneeIds = [...new Set(input.assigneeIds ?? [])];
+  await requireAssignable(session.user.id, input.projectId || null, assigneeIds);
   const task = await db.transaction(async (tx) => {
     const [task] = await tx
       .insert(tasks)
@@ -44,7 +59,7 @@ export async function createTask(input: TaskInput & { id?: string }) {
         id: input.id,
         title,
         description: input.description?.trim() || null,
-        deadline: input.deadline ? new Date(input.deadline) : null,
+        deadline,
         projectId: input.projectId || null,
         position: nextTaskPosition(),
         createdBy: session.user.id,
@@ -70,10 +85,20 @@ export async function updateTask(taskId: string, input: TaskInput) {
 
   const title = input.title.trim();
   if (!title) return { error: "Task title is required" };
+  const deadline = input.deadline ? parseDeadline(input.deadline) : null;
+  if (deadline === undefined) return { error: "Invalid deadline" };
 
   const nextProjectId = input.projectId || null;
   if (nextProjectId && nextProjectId !== task.projectId) {
     await requireMembership(nextProjectId, session.user.id);
+  }
+  if (input.assigneeIds) {
+    await requireAssignable(
+      session.user.id,
+      nextProjectId,
+      input.assigneeIds,
+      await currentAssigneeIds(taskId),
+    );
   }
 
   // Replacing the assignees is a delete followed by an insert; without a
@@ -84,7 +109,7 @@ export async function updateTask(taskId: string, input: TaskInput) {
       .set({
         title,
         description: input.description?.trim() || null,
-        deadline: input.deadline ? new Date(input.deadline) : null,
+        deadline,
         projectId: nextProjectId,
         updatedAt: new Date(),
       })
@@ -131,10 +156,16 @@ export async function moveTaskToProject(
     await requireMembership(projectId, session.user.id);
   }
 
-  await db
-    .update(tasks)
-    .set({ projectId, updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tasks)
+      .set({ projectId, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+    // Only the project's members can see it there.
+    if (projectId && projectId !== task.projectId) {
+      await unassignNonMembers(tx, taskId, projectId);
+    }
+  });
   revalidatePath("/", "layout");
   return { error: undefined };
 }

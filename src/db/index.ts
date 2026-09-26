@@ -101,12 +101,25 @@ function withConnectRetry(pool: Pool) {
   return pool;
 }
 
+/**
+ * TLS for any database off this machine, with the server's certificate
+ * verified: encryption to an unauthenticated server is no protection from
+ * whoever can intercept or redirect the connection. Neon and most hosts use
+ * publicly trusted certificates. A provider signing with its own CA
+ * (Supabase's pooler, a self-hosted server) needs that CA's PEM in
+ * DATABASE_CA_CERT (newlines may be written as `\n`, for env editors that
+ * take a single line). An `sslmode` in the URL still takes precedence.
+ */
+function sslOptions(connectionString: string) {
+  if (isLocalDatabase(connectionString)) return undefined;
+  const ca = process.env.DATABASE_CA_CERT?.replaceAll("\\n", "\n");
+  return { rejectUnauthorized: true, ...(ca ? { ca } : {}) };
+}
+
 function createPool(connectionString: string) {
   const pool = new Pool({
     connectionString,
-    // Hosted Postgres providers require TLS but usually sign with their own
-    // CA, so certificate verification is disabled outside localhost.
-    ssl: isLocalDatabase(connectionString) ? undefined : { rejectUnauthorized: false },
+    ssl: sslOptions(connectionString),
     // Without this a wedged handshake sits until the OS gives up on the TCP
     // connect, minutes later. Long enough for a compute waking from suspend,
     // and a retry follows anyway.

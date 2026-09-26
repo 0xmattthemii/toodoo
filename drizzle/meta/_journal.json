@@ -50,6 +50,20 @@
       "when": 1789849314095,
       "tag": "0006_desktop_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790408255396,
+      "tag": "0007_date_deadlines_and_role_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790409553771,
+      "tag": "0008_access_path_indexes",
+      "breakpoints": true
     }
   ]
 }

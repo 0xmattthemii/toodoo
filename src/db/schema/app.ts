@@ -1,6 +1,10 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
+  date,
   doublePrecision,
+  index,
   jsonb,
   pgTable,
   primaryKey,
@@ -27,19 +31,23 @@ export const projects = pgTable("projects", {
 });
 
 /** Saved board configurations (group-by + filters + list/kanban), private to their owner. */
-export const views = pgTable("views", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  icon: text("icon"),
-  color: text("color"),
-  ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  config: jsonb("config").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const views = pgTable(
+  "views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    icon: text("icon"),
+    color: text("color"),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    config: jsonb("config").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("views_owner_idx").on(table.ownerId)],
+);
 
 export const projectMembers = pgTable(
   "project_members",
@@ -59,7 +67,17 @@ export const projectMembers = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.userId] })],
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    // "Which projects am I in?" — behind nearly every query. The primary key
+    // leads with the project, so it can't answer that.
+    index("project_members_user_idx").on(table.userId),
+    // `enum` above only narrows the TypeScript type; Postgres enforces it.
+    check(
+      "project_members_role_check",
+      sql`${table.role} in ('admin', 'member')`,
+    ),
+  ],
 );
 
 export const projectInvitations = pgTable(
@@ -83,30 +101,55 @@ export const projectInvitations = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [uniqueIndex("project_invitations_project_email_idx").on(table.projectId, table.email)],
+  (table) => [
+    uniqueIndex("project_invitations_project_email_idx").on(
+      table.projectId,
+      table.email,
+    ),
+    // Looked up by address on every workspace load (acceptPendingInvitations).
+    index("project_invitations_email_idx").on(table.email),
+    check(
+      "project_invitations_role_check",
+      sql`${table.role} in ('admin', 'member')`,
+    ),
+    check(
+      "project_invitations_status_check",
+      sql`${table.status} in ('pending', 'accepted')`,
+    ),
+  ],
 );
 
-export const tasks = pgTable("tasks", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: text("title").notNull(),
-  description: text("description"),
-  done: boolean("done").notNull().default(false),
-  deadline: timestamp("deadline", { withTimezone: true }),
-  projectId: uuid("project_id").references(() => projects.id, {
-    onDelete: "cascade",
-  }),
-  /** Manual board order — ascending, shared by everyone who sees the task. */
-  position: doublePrecision("position").notNull().default(0),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    description: text("description"),
+    done: boolean("done").notNull().default(false),
+    /** A calendar day, not an instant: see lib/deadline.ts. */
+    deadline: date("deadline", { mode: "string" }),
+    projectId: uuid("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    /** Manual board order — ascending, shared by everyone who sees the task. */
+    position: doublePrecision("position").notNull().default(0),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("tasks_project_idx").on(table.projectId),
+    index("tasks_created_by_idx").on(table.createdBy),
+    // Every new task takes min(position) - 1 (nextTaskPosition).
+    index("tasks_position_idx").on(table.position),
+  ],
+);
 
 export const taskAssignees = pgTable(
   "task_assignees",
@@ -118,5 +161,8 @@ export const taskAssignees = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => [primaryKey({ columns: [table.taskId, table.userId] })],
+  (table) => [
+    primaryKey({ columns: [table.taskId, table.userId] }),
+    index("task_assignees_user_idx").on(table.userId),
+  ],
 );

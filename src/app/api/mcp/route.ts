@@ -44,7 +44,7 @@ function serializeTask(task: TaskWithMeta) {
     title: task.title,
     description: task.description,
     done: task.done,
-    deadline: task.deadline ? task.deadline.toISOString() : null,
+    deadline: task.deadline,
     projectId: task.projectId,
     projectName: task.projectName,
     assignees: task.assignees.map((person) => ({
@@ -164,7 +164,7 @@ function buildHandler(userId: string) {
         "create_task",
         {
           description:
-            "Create a task, optionally in a project, with a deadline (ISO 8601 date) and assignee user ids.",
+            "Create a task, optionally in a project, with a deadline (a calendar day) and assignee user ids. On a project task, assignees must be members of the project.",
           inputSchema: z.object({
             title: z.string().min(1),
             description: z.string().optional(),
@@ -172,7 +172,7 @@ function buildHandler(userId: string) {
             deadline: z
               .string()
               .optional()
-              .describe("ISO 8601 date, e.g. 2026-09-15"),
+              .describe("Calendar day as YYYY-MM-DD, e.g. 2026-09-15"),
             assigneeIds: z.array(z.string()).optional(),
           }),
         },
@@ -200,7 +200,7 @@ function buildHandler(userId: string) {
               .string()
               .nullable()
               .optional()
-              .describe("ISO 8601 date, or null to clear"),
+              .describe("Calendar day as YYYY-MM-DD, or null to clear"),
             projectId: z
               .string()
               .nullable()
