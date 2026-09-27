@@ -15,7 +15,15 @@ import { taskAssignees, tasks } from "@/db/schema";
 import { canAccessTask, getVisibleTasks } from "@/lib/data";
 import { createTaskFor, deleteTaskFor, updateTaskFor } from "@/lib/operations";
 
-import { as, createProject, createTaskRow, createUser, type TestUser } from "./harness";
+import {
+  as,
+  createProject,
+  createTaskRow,
+  createUser,
+  type TestUser,
+} from "./harness";
+
+const notFound = { error: "Task not found" };
 
 async function assigneesOf(taskId: string) {
   const rows = await db
@@ -29,120 +37,297 @@ async function visibleIds(who: TestUser) {
   return (await getVisibleTasks(who.id)).map((task) => task.id).sort();
 }
 
+/** Every way to change a task, through the web app and through MCP. */
+async function expectLockedOut(who: TestUser, taskId: string) {
+  expect(await canAccessTask(taskId, who.id)).toBeNull();
+  expect(await as(who, () => setTaskDone(taskId, true))).toEqual(notFound);
+  expect(
+    await as(who, () => updateTask(taskId, { title: "Mine now" })),
+  ).toEqual(notFound);
+  expect(await as(who, () => moveTaskToProject(taskId, null))).toEqual(
+    notFound,
+  );
+  expect(await as(who, () => deleteTask(taskId))).toEqual(notFound);
+  await expect(updateTaskFor(who.id, taskId, { done: true })).rejects.toThrow(
+    "Task not found",
+  );
+  await expect(deleteTaskFor(who.id, taskId)).rejects.toThrow("Task not found");
+}
+
 // A project's tasks belong to the project: its current members, and nobody
-// else, may see or change them — including whoever created one or was
-// assigned to it before leaving.
-describe("removing a member", () => {
-  async function removedMemberWithTasks() {
+// else, may see or change them — including whoever created one or is
+// assigned to it.
+describe("project tasks", () => {
+  it("are out of reach of an assignee who isn't a member", async () => {
+    const admin = await createUser("Admin");
+    const outsider = await createUser("Outsider");
+    const projectId = await createProject([[admin, "admin"]]);
+    // An assignment the rules no longer allow, as older data may hold.
+    const taskId = await createTaskRow(admin, {
+      projectId,
+      assignees: [outsider],
+    });
+
+    expect(await visibleIds(outsider)).toEqual([]);
+    await expectLockedOut(outsider, taskId);
+    expect(await db.select().from(tasks)).toEqual([
+      expect.objectContaining({
+        id: taskId,
+        title: "Task",
+        done: false,
+        projectId,
+      }),
+    ]);
+  });
+
+  it("are out of reach of their creator once removed from the project", async () => {
     const admin = await createUser("Admin");
     const member = await createUser("Member");
-    const projectId = await createProject([[admin, "admin"], [member, "member"]]);
+    const projectId = await createProject([
+      [admin, "admin"],
+      [member, "member"],
+    ]);
     const authored = await createTaskRow(member, { projectId });
-    const assigned = await createTaskRow(admin, { projectId, assignees: [member] });
+    const assigned = await createTaskRow(admin, {
+      projectId,
+      assignees: [member],
+    });
     expect(await visibleIds(member)).toEqual([authored, assigned].sort());
 
-    expect(await as(admin, () => removeMember(projectId, member.id))).toEqual({
-      removedSelf: false,
-    });
-    return { admin, member, projectId, authored, assigned };
-  }
+    await as(admin, () => removeMember(projectId, member.id));
 
-  it("takes away every task of the project, authored or assigned", async () => {
-    const { member, authored, assigned } = await removedMemberWithTasks();
     expect(await visibleIds(member)).toEqual([]);
-    for (const taskId of [authored, assigned]) {
-      expect(await canAccessTask(taskId, member.id)).toBeNull();
-    }
-  });
-
-  it("refuses every write they try", async () => {
-    const { member, projectId, authored, assigned } = await removedMemberWithTasks();
-    const notFound = { error: "Task not found" };
-    for (const taskId of [authored, assigned]) {
-      expect(await as(member, () => setTaskDone(taskId, true))).toEqual(notFound);
-      expect(await as(member, () => updateTask(taskId, { title: "Mine now", projectId }))).toEqual(notFound);
-      expect(await as(member, () => moveTaskToProject(taskId, null))).toEqual(notFound);
-      expect(await as(member, () => deleteTask(taskId))).toEqual(notFound);
-      await expect(updateTaskFor(member.id, taskId, { done: true })).rejects.toThrow("Task not found");
-      await expect(deleteTaskFor(member.id, taskId)).rejects.toThrow("Task not found");
-    }
-    expect(await as(member, () => reorderTasks([authored, assigned]))).toEqual(notFound);
-
-    const rows = await db.select().from(tasks);
-    expect(rows).toHaveLength(2);
-    expect(rows.every((task) => !task.done && task.projectId === projectId)).toBe(true);
-  });
-
-  it("unassigns them from the project's tasks", async () => {
-    const { assigned } = await removedMemberWithTasks();
+    await expectLockedOut(member, authored);
+    await expectLockedOut(member, assigned);
+    expect(await as(member, () => reorderTasks([authored, assigned]))).toEqual(
+      notFound,
+    );
+    // Removal also unassigns them: nobody can reach a name they can't see.
     expect(await assigneesOf(assigned)).toEqual([]);
   });
+});
 
-  it("leaves tasks outside any project to their creator and assignees", async () => {
-    const { admin, member } = await removedMemberWithTasks();
-    const personal = await createTaskRow(admin, { assignees: [member] });
-    expect(await canAccessTask(personal, member.id)).not.toBeNull();
-    expect(await canAccessTask(personal, admin.id)).not.toBeNull();
+describe("tasks outside any project", () => {
+  it("belong to their creator and assignees", async () => {
+    const me = await createUser("Me");
+    const assignee = await createUser("Assignee");
     const stranger = await createUser("Stranger");
-    expect(await canAccessTask(personal, stranger.id)).toBeNull();
+    const taskId = await createTaskRow(me, { assignees: [assignee] });
+
+    expect(await canAccessTask(taskId, me.id)).not.toBeNull();
+    expect(await canAccessTask(taskId, assignee.id)).not.toBeNull();
+    await expectLockedOut(stranger, taskId);
   });
 });
 
 describe("assignees", () => {
-  it("must be members of a project task's project", async () => {
+  async function projectWithOutsider() {
     const admin = await createUser("Admin");
     const member = await createUser("Member");
     const outsider = await createUser("Outsider");
-    const projectId = await createProject([[admin, "admin"], [member, "member"]]);
+    const projectId = await createProject([
+      [admin, "admin"],
+      [member, "member"],
+    ]);
+    return { admin, member, outsider, projectId };
+  }
 
+  const notInProject = "Tasks can only be assigned to members of their project";
+  const noSharedProject =
+    "Tasks can only be assigned to people you share a project with";
+
+  it("of a project task must be members of the project", async () => {
+    const { admin, member, outsider, projectId } = await projectWithOutsider();
+
+    expect(
+      await as(admin, () =>
+        createTask({ title: "x", projectId, assigneeIds: [outsider.id] }),
+      ),
+    ).toEqual({
+      error: notInProject,
+    });
     await expect(
-      as(admin, () => createTask({ title: "x", projectId, assigneeIds: [outsider.id] })),
-    ).rejects.toThrow("Tasks can only be assigned to members of their project");
-    await expect(createTaskFor(admin.id, { title: "x", projectId, assigneeIds: [outsider.id] })).rejects.toThrow();
+      createTaskFor(admin.id, {
+        title: "x",
+        projectId,
+        assigneeIds: [outsider.id],
+      }),
+    ).rejects.toThrow(notInProject);
     expect(await db.select().from(tasks)).toHaveLength(0);
 
-    const created = await as(admin, () => createTask({ title: "x", projectId, assigneeIds: [member.id, admin.id] }));
-    expect("taskId" in created).toBe(true);
+    const created = await as(admin, () =>
+      createTask({ title: "x", projectId, assigneeIds: [member.id, admin.id] }),
+    );
+    expect(created.taskId).toEqual(expect.any(String));
+  });
+
+  it("can't be changed to someone outside the project", async () => {
+    const { admin, member, outsider, projectId } = await projectWithOutsider();
+    const taskId = await createTaskRow(admin, {
+      projectId,
+      assignees: [member],
+    });
+
+    expect(
+      await as(admin, () =>
+        updateTask(taskId, {
+          title: "Task",
+          projectId,
+          assigneeIds: [outsider.id],
+        }),
+      ),
+    ).toEqual({
+      error: notInProject,
+    });
+    await expect(
+      updateTaskFor(admin.id, taskId, { assigneeIds: [outsider.id] }),
+    ).rejects.toThrow(notInProject);
+    expect(await assigneesOf(taskId)).toEqual([member.id]);
+  });
+
+  it("can't come along into a project they aren't in", async () => {
+    const { admin, member, projectId } = await projectWithOutsider();
+    const other = await createProject([[admin, "admin"]]);
+    const taskId = await createTaskRow(admin, {
+      projectId,
+      assignees: [member],
+    });
+
+    expect(
+      await as(admin, () =>
+        updateTask(taskId, {
+          title: "Task",
+          projectId: other,
+          assigneeIds: [member.id],
+        }),
+      ),
+    ).toEqual({ error: notInProject });
+    await expect(
+      updateTaskFor(admin.id, taskId, {
+        projectId: other,
+        assigneeIds: [member.id],
+      }),
+    ).rejects.toThrow(notInProject);
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    expect(task.projectId).toBe(projectId);
   });
 
   it("outside a project, must share a project with you (or be you)", async () => {
-    const me = await createUser("Me");
-    const colleague = await createUser("Colleague");
-    const stranger = await createUser("Stranger");
-    await createProject([[me, "admin"], [colleague, "member"]]);
+    const { admin, member, outsider } = await projectWithOutsider();
 
+    expect(
+      await as(admin, () =>
+        createTask({ title: "x", assigneeIds: [outsider.id] }),
+      ),
+    ).toEqual({
+      error: noSharedProject,
+    });
+    const taskId = await createTaskRow(admin, { assignees: [member] });
+    expect(
+      await as(admin, () =>
+        updateTask(taskId, { title: "Task", assigneeIds: [outsider.id] }),
+      ),
+    ).toEqual({
+      error: noSharedProject,
+    });
     await expect(
-      as(me, () => createTask({ title: "x", assigneeIds: [stranger.id] })),
-    ).rejects.toThrow("Tasks can only be assigned to people you share a project with");
-    const created = await as(me, () => createTask({ title: "x", assigneeIds: [me.id, colleague.id] }));
-    expect("taskId" in created).toBe(true);
+      updateTaskFor(admin.id, taskId, { assigneeIds: [outsider.id] }),
+    ).rejects.toThrow(noSharedProject);
+
+    const created = await as(admin, () =>
+      createTask({ title: "x", assigneeIds: [admin.id, member.id] }),
+    );
+    expect(created.taskId).toEqual(expect.any(String));
   });
 
-  it("who are already on a task outside any project can stay on it", async () => {
+  it("already on a task outside any project may stay on it", async () => {
     const me = await createUser("Me");
     const former = await createUser("Former colleague");
     const taskId = await createTaskRow(me, { assignees: [former] });
 
-    expect(await as(me, () => updateTask(taskId, { title: "Renamed", assigneeIds: [former.id] }))).toEqual({
+    expect(
+      await as(me, () =>
+        updateTask(taskId, { title: "Renamed", assigneeIds: [former.id] }),
+      ),
+    ).toEqual({
       error: undefined,
     });
     expect(await assigneesOf(taskId)).toEqual([former.id]);
   });
 
-  it("are dropped when a task moves into a project they aren't in", async () => {
+  it.each([
+    ["not a list", "user-1" as unknown as string[]],
+    ["not strings", [7] as unknown as string[]],
+    ["too many", Array.from({ length: 101 }, (_, i) => `user-${i}`)],
+  ])("are refused when %s", async (_, assigneeIds) => {
     const me = await createUser("Me");
-    const inBoth = await createUser("In both");
-    const onlyA = await createUser("Only in A");
-    const projectA = await createProject([[me, "admin"], [inBoth, "member"], [onlyA, "member"]]);
-    const projectB = await createProject([[me, "admin"], [inBoth, "member"]]);
+    expect(await as(me, () => createTask({ title: "x", assigneeIds }))).toEqual(
+      { error: "Invalid assignees" },
+    );
+  });
 
-    const dragged = await createTaskRow(me, { projectId: projectA, assignees: [inBoth, onlyA] });
-    expect(await as(me, () => moveTaskToProject(dragged, projectB))).toEqual({ error: undefined });
-    expect(await assigneesOf(dragged)).toEqual([inBoth.id]);
+  describe("who aren't in the project a task moves into", () => {
+    async function taskInA() {
+      const me = await createUser("Me");
+      const inBoth = await createUser("In both");
+      const onlyA = await createUser("Only in A");
+      const projectA = await createProject([
+        [me, "admin"],
+        [inBoth, "member"],
+        [onlyA, "member"],
+      ]);
+      const projectB = await createProject([
+        [me, "admin"],
+        [inBoth, "member"],
+      ]);
+      const taskId = await createTaskRow(me, {
+        projectId: projectA,
+        assignees: [inBoth, onlyA],
+      });
+      return { me, inBoth, projectB, taskId };
+    }
 
-    const viaMcp = await createTaskRow(me, { projectId: projectA, assignees: [inBoth, onlyA] });
-    await updateTaskFor(me.id, viaMcp, { projectId: projectB });
-    expect(await assigneesOf(viaMcp)).toEqual([inBoth.id]);
+    it("are unassigned when it is dragged there", async () => {
+      const { me, inBoth, projectB, taskId } = await taskInA();
+      expect(await as(me, () => moveTaskToProject(taskId, projectB))).toEqual({
+        error: undefined,
+      });
+      expect(await assigneesOf(taskId)).toEqual([inBoth.id]);
+    });
+
+    it("are unassigned when it is edited there without naming assignees", async () => {
+      const { me, inBoth, projectB, taskId } = await taskInA();
+      expect(
+        await as(me, () =>
+          updateTask(taskId, { title: "Task", projectId: projectB }),
+        ),
+      ).toEqual({
+        error: undefined,
+      });
+      expect(await assigneesOf(taskId)).toEqual([inBoth.id]);
+    });
+
+    it("are unassigned when it is moved there over MCP", async () => {
+      const { me, inBoth, projectB, taskId } = await taskInA();
+      await updateTaskFor(me.id, taskId, { projectId: projectB });
+      expect(await assigneesOf(taskId)).toEqual([inBoth.id]);
+    });
+  });
+});
+
+describe("malformed ids", () => {
+  it("are simply not found", async () => {
+    const me = await createUser("Me");
+    for (const id of ["not-a-uuid", "", "1; drop table tasks"]) {
+      expect(await as(me, () => setTaskDone(id, true))).toEqual(notFound);
+      expect(await as(me, () => deleteTask(id))).toEqual(notFound);
+      expect(await as(me, () => reorderTasks([id, "also-bad"]))).toEqual(
+        notFound,
+      );
+    }
+    await expect(
+      as(me, () => createTask({ title: "x", projectId: "not-a-uuid" })),
+    ).rejects.toThrow("You are not a member of this project");
   });
 });
 
@@ -154,23 +339,33 @@ describe("deadlines", () => {
 
   it("are stored as the calendar day given", async () => {
     const me = await createUser("Me");
-    const created = await as(me, () => createTask({ title: "x", deadline: "2026-09-24" }));
+    const created = await as(me, () =>
+      createTask({ title: "x", deadline: "2026-09-24" }),
+    );
     if (!created.taskId) throw new Error("not created");
     expect(await deadlineOf(created.taskId)).toBe("2026-09-24");
 
     // An API caller's timestamp keeps the day it was written in.
-    const task = await createTaskFor(me.id, { title: "y", deadline: "2026-09-15T23:30:00-07:00" });
+    const task = await createTaskFor(me.id, {
+      title: "y",
+      deadline: "2026-09-15T23:30:00-07:00",
+    });
     expect(task.deadline).toBe("2026-09-15");
     await updateTaskFor(me.id, task.id, { deadline: null });
     expect(await deadlineOf(task.id)).toBeNull();
   });
 
-  it("reject anything that isn't a real day", async () => {
-    const me = await createUser("Me");
-    for (const deadline of ["2026-02-30", "tomorrow", "09/24/2026"]) {
-      expect(await as(me, () => createTask({ title: "x", deadline }))).toEqual({ error: "Invalid deadline" });
-      await expect(createTaskFor(me.id, { title: "x", deadline })).rejects.toThrow("Deadline must be a date");
-    }
-    expect(await db.select().from(tasks)).toHaveLength(0);
-  });
+  it.each(["2026-02-30", "tomorrow", "09/24/2026"])(
+    "refuse %j, which isn't a day",
+    async (deadline) => {
+      const me = await createUser("Me");
+      expect(await as(me, () => createTask({ title: "x", deadline }))).toEqual({
+        error: "Invalid deadline",
+      });
+      await expect(
+        createTaskFor(me.id, { title: "x", deadline }),
+      ).rejects.toThrow("Deadline must be a date");
+      expect(await db.select().from(tasks)).toHaveLength(0);
+    },
+  );
 });

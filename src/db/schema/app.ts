@@ -72,7 +72,8 @@ export const projectMembers = pgTable(
     // "Which projects am I in?" — behind nearly every query. The primary key
     // leads with the project, so it can't answer that.
     index("project_members_user_idx").on(table.userId),
-    // `enum` above only narrows the TypeScript type; Postgres enforces it.
+    // `enum` above only narrows the TypeScript type; this CHECK is what
+    // Postgres enforces.
     check(
       "project_members_role_check",
       sql`${table.role} in ('admin', 'member')`,

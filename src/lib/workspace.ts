@@ -29,7 +29,7 @@ export type WorkspaceSnapshot = {
   me: Person;
   projects: ProjectSummary[];
   views: ViewSummary[];
-  /** Tasks in the user's projects, created by them, or assigned to them. */
+  /** Tasks in the user's projects, and their own or assigned tasks outside any. */
   tasks: TaskWithMeta[];
   /** Members of every project the user is in (includes the user). */
   memberships: ProjectMembership[];

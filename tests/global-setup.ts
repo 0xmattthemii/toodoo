@@ -5,7 +5,7 @@ import { Pool } from "pg";
 /**
  * Rebuilds the test database from the migrations, once per run. The suite
  * wipes that database, so it only runs against one that is plainly
- * disposable: on this machine, with "test" in its name.
+ * disposable: on this machine, and named `test` or `…_test` / `test_…`.
  */
 export default async function setup() {
   const url = process.env.TEST_DATABASE_URL;
@@ -15,16 +15,20 @@ export default async function setup() {
     );
   }
   const { hostname, pathname } = new URL(url);
-  if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname) || !pathname.includes("test")) {
+  const database = decodeURIComponent(pathname.slice(1));
+  if (
+    !["localhost", "127.0.0.1", "[::1]"].includes(hostname) ||
+    !/(^|_)test(_|$)/.test(database)
+  ) {
     throw new Error(
-      `Refusing to run against ${hostname}${pathname}: the tests erase their database, so it must be local and have "test" in its name.`,
+      `Refusing to run against "${database}" on ${hostname}: the tests erase their database, so it must be local and named like toodoo_test.`,
     );
   }
 
   const pool = new Pool({ connectionString: url });
   try {
     await pool.query(
-      "drop schema if exists drizzle cascade; drop schema public cascade; create schema public;",
+      "drop schema if exists drizzle cascade; drop schema if exists public cascade; create schema public;",
     );
     await migrate(drizzle(pool), { migrationsFolder: "drizzle" });
   } finally {

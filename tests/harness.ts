@@ -1,5 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { and, eq, sql } from "drizzle-orm";
-import { vi } from "vitest";
 
 import { db } from "@/db";
 import {
@@ -9,42 +10,45 @@ import {
   tasks,
   user,
 } from "@/db/schema";
-import { requireSession } from "@/lib/session";
+import type { requireSession } from "@/lib/session";
 import type { Role } from "@/lib/types";
 
 export type TestUser = { id: string; name: string; email: string };
 
-let signedIn: TestUser | null = null;
+const signedIn = new AsyncLocalStorage<TestUser>();
 
-vi.mocked(requireSession).mockImplementation(async () => {
-  if (!signedIn) throw new Error("No test user signed in");
+/**
+ * What the mocked `requireSession` returns (see setup.ts): the user the
+ * surrounding `as()` call runs as. Each call carries its own, so actions
+ * started side by side run as different users, and one made outside `as()`
+ * fails instead of quietly running as whoever went before.
+ */
+export async function currentSession() {
+  const who = signedIn.getStore();
+  if (!who) throw new Error("Call server actions inside as(user, ...)");
   const now = new Date();
   return {
-    user: { ...signedIn, emailVerified: true, image: null, createdAt: now, updatedAt: now },
+    user: {
+      ...who,
+      emailVerified: true,
+      image: null,
+      createdAt: now,
+      updatedAt: now,
+    },
     session: {
-      id: "test-session",
-      userId: signedIn.id,
+      id: `session-${who.id}`,
+      userId: who.id,
       token: "test",
       expiresAt: new Date(now.getTime() + 60_000),
       createdAt: now,
       updatedAt: now,
     },
   } as Awaited<ReturnType<typeof requireSession>>;
-});
-
-/**
- * Makes the next server action calls run as `who`. The session is read when
- * an action starts, so two calls started back to back can run as different
- * users (see the concurrency tests).
- */
-export function signInAs(who: TestUser) {
-  signedIn = who;
 }
 
-/** Runs `action` as `who`: signs in, then starts it before anyone else can. */
+/** Runs `action` as `who`, the way a request with their session would. */
 export function as<T>(who: TestUser, action: () => Promise<T>) {
-  signInAs(who);
-  return action();
+  return signedIn.run(who, action);
 }
 
 let counter = 0;
@@ -97,7 +101,9 @@ export async function createTaskRow(
   if (assignees.length > 0) {
     await db
       .insert(taskAssignees)
-      .values(assignees.map((person) => ({ taskId: task.id, userId: person.id })));
+      .values(
+        assignees.map((person) => ({ taskId: task.id, userId: person.id })),
+      );
   }
   return task.id;
 }
@@ -147,4 +153,21 @@ export async function withSlowMembershipWrites<T>(fn: () => Promise<T>) {
     await db.execute(sql`drop trigger test_slow_write on project_members`);
     await db.execute(sql`drop function test_slow_write()`);
   }
+}
+
+/**
+ * Resolves once a membership write is being held by withSlowMembershipWrites
+ * — i.e. its request holds the project lock — so a second request can be
+ * started knowing it will queue behind the first.
+ */
+export async function untilMembershipWriteHeld() {
+  for (let waited = 0; waited < 5_000; waited += 20) {
+    const { rows } = await db.execute(sql`
+      select 1 from pg_stat_activity
+      where state = 'active' and query ilike '%"project_members"%'
+        and pid <> pg_backend_pid()`);
+    if (rows.length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("No membership write started");
 }

@@ -1,4 +1,15 @@
-import { and, asc, desc, eq, exists, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import { db } from "@/db";
@@ -11,6 +22,7 @@ import {
   user,
   views,
 } from "@/db/schema";
+import { isValidId } from "@/lib/ids";
 import {
   normalizeBoardConfig,
   type BoardConfig,
@@ -94,6 +106,9 @@ export async function getMembership(
   userId: string,
   executor: Executor = db,
 ) {
+  // Ids come straight from requests; a malformed one is simply not a member
+  // (rather than a Postgres error on the uuid column).
+  if (!isValidId(projectId)) return null;
   const [membership] = await executor
     .select()
     .from(projectMembers)
@@ -172,6 +187,7 @@ export async function withProjectLock<T>(
   projectId: string,
   fn: (tx: Executor) => Promise<T>,
 ): Promise<T> {
+  if (!isValidId(projectId)) throw new Error("Project not found");
   return db.transaction(async (tx) => {
     const [locked] = await tx
       .select({ id: projects.id })
@@ -183,24 +199,43 @@ export async function withProjectLock<T>(
   });
 }
 
+/** Who is assigned the task now. */
+export async function getAssigneeIds(taskId: string) {
+  const rows = await db
+    .select({ userId: taskAssignees.userId })
+    .from(taskAssignees)
+    .where(eq(taskAssignees.taskId, taskId));
+  return rows.map((row) => row.userId);
+}
+
+/** More than any real task has; a request asking for more is refused. */
+const MAX_ASSIGNEES = 100;
+
 /**
- * Refuses assignees who could never see the task: on a project task anyone
- * who isn't a member of that project; on a task outside any project anyone
- * the user doesn't share a project with (the people the task dialog offers).
- * `keep` are the task's current assignees, allowed to stay on a task outside
- * any project even once the two stop sharing one.
+ * Why these people can't be assigned the task, or null if they can. Only
+ * people who can see a task may be assigned it: on a project task, members
+ * of that project; on a task outside any project, the user and anyone they
+ * share a project with (who the task dialog offers). `keep` are the task's
+ * current assignees, who may stay on a task outside any project even after
+ * the user and they stop sharing one.
  */
-export async function requireAssignable(
+export async function assigneeError(
   userId: string,
   projectId: string | null,
-  assigneeIds: string[],
+  assigneeIds: unknown,
   keep: string[] = [],
-) {
-  // Outside a project, you can always take a task yourself.
+): Promise<string | null> {
+  if (
+    !Array.isArray(assigneeIds) ||
+    assigneeIds.length > MAX_ASSIGNEES ||
+    !assigneeIds.every((id) => typeof id === "string")
+  ) {
+    return "Invalid assignees";
+  }
   const candidates = projectId
     ? assigneeIds
     : assigneeIds.filter((id) => id !== userId);
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) return null;
 
   const rows = await db
     .selectDistinct({ userId: projectMembers.userId })
@@ -221,13 +256,18 @@ export async function requireAssignable(
     );
   const allowed = new Set(rows.map((row) => row.userId));
   if (!projectId) keep.forEach((id) => allowed.add(id));
-  if (candidates.some((id) => !allowed.has(id))) {
-    throw new Error(
-      projectId
-        ? "Tasks can only be assigned to members of their project"
-        : "Tasks can only be assigned to people you share a project with",
-    );
-  }
+  if (candidates.every((id) => allowed.has(id))) return null;
+  return projectId
+    ? "Tasks can only be assigned to members of their project"
+    : "Tasks can only be assigned to people you share a project with";
+}
+
+/** `assigneeError` for callers that report failures by throwing (MCP). */
+export async function requireAssignable(
+  ...args: Parameters<typeof assigneeError>
+) {
+  const error = await assigneeError(...args);
+  if (error) throw new Error(error);
 }
 
 /**
@@ -391,7 +431,7 @@ export async function getVisibleTasks(userId: string): Promise<TaskWithMeta[]> {
  * touches a whole group at once.
  */
 export async function getReorderableTasks(taskIds: string[], userId: string) {
-  if (taskIds.length === 0) return [];
+  if (taskIds.length === 0 || !taskIds.every(isValidId)) return [];
   return db
     .select({ id: tasks.id, position: tasks.position })
     .from(tasks)
@@ -424,6 +464,7 @@ export async function getProject(projectId: string) {
  * `visibleTasksWhere`, which is the same rule as a query.
  */
 export async function canAccessTask(taskId: string, userId: string) {
+  if (!isValidId(taskId)) return null;
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) return null;
   if (task.projectId) {
@@ -474,15 +515,13 @@ export async function getView(
 }
 
 /**
- * Turns pending invitations to the user's email address into memberships —
- * once that address is verified. An invitation is addressed to a mailbox,
- * and an account merely *claims* one: a password sign-up works before its
- * owner has clicked anything in their inbox. Without this check, anyone who
- * registered an invited address before its owner did would walk into the
- * project, as an admin if that is what the invitation was for. Unverified
- * accounts keep their invitations pending; they are accepted on the first
- * page load after the address is verified (or a Google sign-in, which
- * verifies it).
+ * Turns pending invitations to the user's address into memberships, once the
+ * address is verified. An invitation is addressed to a mailbox, and a
+ * password sign-up only claims one: without the check, whoever registered an
+ * invited address first would join the project, as an admin if that is what
+ * the invitation was for. Unverified accounts keep their invitations pending
+ * until the first page load after verification (or a Google sign-in, which
+ * verifies the address).
  */
 export async function acceptPendingInvitations(userId: string) {
   const [account] = await db
@@ -502,30 +541,39 @@ export async function acceptPendingInvitations(userId: string) {
     );
 
   for (const invitation of pending) {
-    // Claiming the invitation and joining commit together, and only the
-    // request that flips it from pending joins.
-    await db.transaction(async (tx) => {
-      const [claimed] = await tx
-        .update(projectInvitations)
-        .set({ status: "accepted" })
-        .where(
-          and(
-            eq(projectInvitations.id, invitation.id),
-            eq(projectInvitations.status, "pending"),
-          ),
-        )
-        .returning({ id: projectInvitations.id });
-      if (!claimed) return;
-      await tx
-        .insert(projectMembers)
-        .values({
-          projectId: invitation.projectId,
-          userId,
-          role: invitation.role,
-          position: nextProjectMemberPosition(userId),
-        })
-        .onConflictDoNothing();
-    });
+    try {
+      // Claiming the invitation and joining commit together, and only the
+      // request that flips it from pending joins.
+      await db.transaction(async (tx) => {
+        const [claimed] = await tx
+          .update(projectInvitations)
+          .set({ status: "accepted" })
+          .where(
+            and(
+              eq(projectInvitations.id, invitation.id),
+              eq(projectInvitations.status, "pending"),
+            ),
+          )
+          .returning({ id: projectInvitations.id });
+        if (!claimed) return;
+        await tx
+          .insert(projectMembers)
+          .values({
+            projectId: invitation.projectId,
+            userId,
+            role: invitation.role,
+            position: nextProjectMemberPosition(userId),
+          })
+          .onConflictDoNothing();
+      });
+    } catch (error) {
+      // One invitation failing mustn't hold up the others; it stays pending
+      // and is retried on the next load.
+      console.error(
+        `[invitations] could not accept invitation ${invitation.id}`,
+        error,
+      );
+    }
   }
 }
 

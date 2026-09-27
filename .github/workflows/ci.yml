@@ -1,9 +1,9 @@
 name: CI
 
-# Lint, tests and a production build for every pull request and push to
-# main. The tests run the real server actions against a throwaway Postgres
-# (see tests/), which is what catches permission and concurrency
-# regressions a build alone never would.
+# Lint, tests, a production build and the desktop unit tests for every pull
+# request and push to main. The tests run the real server actions against a
+# throwaway Postgres (see tests/), which is what catches the permission and
+# concurrency regressions a build alone never would.
 on:
   pull_request:
   push:
@@ -19,6 +19,7 @@ permissions:
 jobs:
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17-alpine
@@ -46,14 +47,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Each check runs even when an earlier one fails, so a lint error
+      # doesn't hide a test failure.
       - run: pnpm lint
 
       - run: pnpm test
+        if: ${{ !cancelled() }}
 
       # Also type-checks the whole project, tests included. Nothing connects
       # to the database at build time, but src/db refuses to load without a
       # URL, and Better Auth wants a secret.
       - run: pnpm build
+        if: ${{ !cancelled() }}
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/toodoo_test
           BETTER_AUTH_SECRET: ci-build-only-not-a-secret
@@ -62,6 +67,7 @@ jobs:
     # macOS already has everything Tauri links against; Linux would need the
     # WebKitGTK development packages installed first.
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 

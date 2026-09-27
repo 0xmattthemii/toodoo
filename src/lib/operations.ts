@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { projectMembers, projects, taskAssignees, tasks } from "@/db/schema";
 import {
   canAccessTask,
+  getAssigneeIds,
   nextProjectMemberPosition,
   nextTaskPosition,
   requireAssignable,
@@ -129,15 +130,11 @@ export async function updateTaskFor(
     patch.projectId = nextProjectId;
   }
   if (input.assigneeIds !== undefined) {
-    const current = await db
-      .select({ userId: taskAssignees.userId })
-      .from(taskAssignees)
-      .where(eq(taskAssignees.taskId, taskId));
     await requireAssignable(
       userId,
       nextProjectId,
       input.assigneeIds,
-      current.map((row) => row.userId),
+      await getAssigneeIds(taskId),
     );
   }
 

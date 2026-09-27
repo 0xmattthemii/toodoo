@@ -7,10 +7,11 @@ import { db } from "@/db";
 import { taskAssignees, tasks } from "@/db/schema";
 import {
   canAccessTask,
+  getAssigneeIds,
   getReorderableTasks,
   nextTaskPosition,
   positionCase,
-  requireAssignable,
+  assigneeError,
   requireMembership,
   unassignNonMembers,
 } from "@/lib/data";
@@ -27,14 +28,6 @@ type TaskInput = {
   assigneeIds?: string[];
 };
 
-async function currentAssigneeIds(taskId: string) {
-  const rows = await db
-    .select({ userId: taskAssignees.userId })
-    .from(taskAssignees)
-    .where(eq(taskAssignees.taskId, taskId));
-  return rows.map((row) => row.userId);
-}
-
 export async function createTask(input: TaskInput & { id?: string }) {
   const session = await requireSession();
   const title = input.title.trim();
@@ -50,8 +43,14 @@ export async function createTask(input: TaskInput & { id?: string }) {
     await requireMembership(input.projectId, session.user.id);
   }
 
+  const invalidAssignees = await assigneeError(
+    session.user.id,
+    input.projectId || null,
+    input.assigneeIds ?? [],
+  );
+  if (invalidAssignees) return { error: invalidAssignees };
   const assigneeIds = [...new Set(input.assigneeIds ?? [])];
-  await requireAssignable(session.user.id, input.projectId || null, assigneeIds);
+
   const task = await db.transaction(async (tx) => {
     const [task] = await tx
       .insert(tasks)
@@ -89,16 +88,18 @@ export async function updateTask(taskId: string, input: TaskInput) {
   if (deadline === undefined) return { error: "Invalid deadline" };
 
   const nextProjectId = input.projectId || null;
-  if (nextProjectId && nextProjectId !== task.projectId) {
+  const movesIntoProject = nextProjectId && nextProjectId !== task.projectId;
+  if (movesIntoProject) {
     await requireMembership(nextProjectId, session.user.id);
   }
   if (input.assigneeIds) {
-    await requireAssignable(
+    const invalidAssignees = await assigneeError(
       session.user.id,
       nextProjectId,
       input.assigneeIds,
-      await currentAssigneeIds(taskId),
+      await getAssigneeIds(taskId),
     );
+    if (invalidAssignees) return { error: invalidAssignees };
   }
 
   // Replacing the assignees is a delete followed by an insert; without a
@@ -124,6 +125,9 @@ export async function updateTask(taskId: string, input: TaskInput) {
           .values(assigneeIds.map((userId) => ({ taskId, userId })))
           .onConflictDoNothing();
       }
+    } else if (movesIntoProject) {
+      // Only the project's members can see it there.
+      await unassignNonMembers(tx, taskId, nextProjectId);
     }
   });
 

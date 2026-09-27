@@ -1,7 +1,12 @@
 import { addDays, isBefore, isToday, startOfDay } from "date-fns";
 
 import { deadlineDate } from "@/lib/deadline";
-import type { GroupBy, Person, ProjectSummary, TaskWithMeta } from "@/lib/types";
+import type {
+  GroupBy,
+  Person,
+  ProjectSummary,
+  TaskWithMeta,
+} from "@/lib/types";
 
 export type DueBucket = "overdue" | "today" | "week" | "later" | "none";
 
@@ -71,9 +76,7 @@ export function groupTasks(
   switch (groupBy) {
     case "project": {
       const result: Group[] = projects
-        .filter(
-          (project) => !scopedProjectId || project.id === scopedProjectId,
-        )
+        .filter((project) => !scopedProjectId || project.id === scopedProjectId)
         .map((project) => ({
           key: project.id,
           label: project.name,

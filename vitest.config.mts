@@ -25,5 +25,7 @@ export default defineConfig({
     },
     // One database shared by every file, wiped before each test.
     fileParallelism: false,
+    // Mocks start each test with no recorded calls and their default behaviour.
+    mockReset: true,
   },
 });

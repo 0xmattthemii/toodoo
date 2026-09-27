@@ -61,8 +61,10 @@ async function WorkspaceShell({
 }) {
   try {
     await acceptPendingInvitations(me.id);
-  } catch {
-    // Best effort — a failed invitation sync should never block the app.
+  } catch (error) {
+    // Never block the app on it: the invitations stay pending and are
+    // retried on the next load.
+    console.error("[invitations] could not check pending invitations", error);
   }
   const snapshot = await getWorkspaceSnapshot(me);
 

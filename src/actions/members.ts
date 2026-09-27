@@ -32,8 +32,8 @@ export async function inviteToProject(
   role: Role = "member",
 ) {
   const session = await requireSession();
-  await requireMembership(projectId, session.user.id, "admin");
   if (!isRole(role)) return { error: "Unknown role" };
+  await requireMembership(projectId, session.user.id, "admin");
 
   const normalized = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
@@ -79,23 +79,22 @@ export async function inviteToProject(
     if (inserted.length === 0) {
       return { error: "That person is already a member" };
     }
-    try {
-      await sendEmail({
+    const emailSent = await attempt("member-added email", () =>
+      sendEmail({
         to: normalized,
         subject: `${inviter} added you to ${project?.name ?? "a project"} on toodoo`,
         heading: `You've been added to ${project?.name ?? "a project"}`,
         body: `${inviter} added you to the project "${project?.name ?? ""}" on toodoo. You can see its tasks right away.`,
         actionLabel: "Open the project",
         actionUrl: appUrl(`/projects/${projectId}`),
-      });
-    } catch (error) {
-      console.error("[email] failed to send member-added email", error);
-    }
+      }),
+    );
     revalidatePath("/", "layout");
     const { id, name, image } = existing;
     return {
       added: true as const,
       member: { id, name, email: existing.email, image, role },
+      emailSent,
     };
   }
 
@@ -111,34 +110,36 @@ export async function inviteToProject(
   if (inserted.length === 0) {
     return { error: "That email has already been invited" };
   }
-  try {
-    if (existing) {
-      // Verification links expire within the hour, so the one sent at
-      // sign-up is likely long dead: send a fresh one to go with this.
-      await auth.api.sendVerificationEmail({
+  // An existing account's sign-up verification link has most likely expired
+  // (they last an hour), so it gets a fresh one along with the invitation.
+  const verificationSent =
+    !existing ||
+    (await attempt("verification email", () =>
+      auth.api.sendVerificationEmail({
         body: { email: normalized, callbackURL: `/projects/${projectId}` },
-      });
-      await sendEmail({
-        to: normalized,
-        subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
-        heading: `${inviter} invited you to ${project?.name ?? "a project"}`,
-        body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Confirm your email address with the verification link we've just sent you, and you'll join the project automatically.`,
-        actionLabel: "Open toodoo",
-        actionUrl: appUrl("/"),
-      });
-    } else {
-      await sendEmail({
-        to: normalized,
-        subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
-        heading: `${inviter} invited you to toodoo`,
-        body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Create an account with this email address and confirm it, and you'll join the project automatically.`,
-        actionLabel: "Sign up",
-        actionUrl: appUrl("/signup"),
-      });
-    }
-  } catch (error) {
-    console.error("[email] failed to send invitation email", error);
-  }
+      }),
+    ));
+  const invitationSent = await attempt("invitation email", () =>
+    sendEmail(
+      existing
+        ? {
+            to: normalized,
+            subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
+            heading: `${inviter} invited you to ${project?.name ?? "a project"}`,
+            body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Confirm your email address with the verification link we've just sent you, and you'll join the project automatically.`,
+            actionLabel: "Open toodoo",
+            actionUrl: appUrl("/"),
+          }
+        : {
+            to: normalized,
+            subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
+            heading: `${inviter} invited you to toodoo`,
+            body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Create an account with this email address and confirm it, and you'll join the project automatically.`,
+            actionLabel: "Sign up",
+            actionUrl: appUrl("/signup"),
+          },
+    ),
+  );
   revalidatePath("/", "layout");
   const [invitation] = inserted;
   return {
@@ -150,7 +151,23 @@ export async function inviteToProject(
       role: invitation.role,
       createdAt: invitation.createdAt,
     },
+    emailSent: verificationSent && invitationSent,
   };
+}
+
+/**
+ * Sends one email, reporting whether it went out. The membership or
+ * invitation it announces is already saved, so a mail failure is logged and
+ * surfaced to the admin rather than failing the request.
+ */
+async function attempt(what: string, send: () => Promise<unknown>) {
+  try {
+    await send();
+    return true;
+  } catch (error) {
+    console.error(`[email] could not send the ${what}`, error);
+    return false;
+  }
 }
 
 export async function revokeInvitation(
@@ -184,10 +201,8 @@ async function countAdmins(tx: Executor, projectId: string) {
   return admins.length;
 }
 
-// Role changes and removals run under the project's lock (withProjectLock),
-// each re-reading the caller's permission, the target and the admin count
-// there: checked outside it, two admins stepping down at once would each see
-// the other and leave the project with none.
+// Role changes and removals check and write under the project's lock; see
+// withProjectLock for why.
 
 export async function updateMemberRole(
   projectId: string,

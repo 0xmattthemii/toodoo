@@ -34,14 +34,14 @@ Open [http://localhost:3000](http://localhost:3000) and create an account.
 
 ### Tests
 
-The tests run the server actions against a real Postgres database, which they erase first. Point them at a separate local database whose name contains `test`:
+The tests run the server actions against a real Postgres database, which they erase first, so they only accept a local database named like `toodoo_test`. With the throwaway container above:
 
 ```bash
 docker exec toodoo-pg createdb -U postgres toodoo_test
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:54329/toodoo_test pnpm test
 ```
 
-CI runs lint, these tests, a production build and the desktop app's unit tests on every pull request.
+CI runs lint, these tests, a production build and the desktop app's unit tests on every pull request and push to `main`.
 
 ## Deploy your own
 
@@ -55,7 +55,7 @@ Everything is set through environment variables. No code changes or rebuilds are
 | Variable | Required | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string (use a pooled URL on serverless) |
-| `DATABASE_CA_CERT` | no | PEM certificate of your database's CA, for providers that don't use a publicly trusted one (such as Supabase's pooler). Certificates are always verified for remote databases |
+| `DATABASE_CA_CERT` | no | PEM certificate of your database's CA, for providers that don't use a publicly trusted one, such as [Supabase](https://supabase.com/docs/guides/platform/ssl-enforcement). The certificate of any remote database is verified, whatever `sslmode` the URL names, unless it says `sslmode=disable` or `sslmode=no-verify` |
 | `BETTER_AUTH_SECRET` | yes | Session signing secret (`openssl rand -base64 32`) |
 | `BETTER_AUTH_URL` | outside Vercel | Public base URL of the app |
 | `RESEND_API_KEY` | no | [Resend](https://resend.com) key for reset, verification and invitation emails. Without it, emails are only logged, and invitations can only be accepted through Google sign-in (see below) |
@@ -103,7 +103,11 @@ Tools: `list_projects`, `list_project_members`, `list_tasks`, `create_project`, 
 
 ## Database
 
-Schema in [`src/db/schema`](src/db/schema), migrations in [`drizzle/`](drizzle). It's plain Postgres, so you can switch providers by changing `DATABASE_URL`.
+Schema in [`src/db/schema`](src/db/schema), migrations in [`drizzle/`](drizzle). It's plain Postgres, so you can switch providers by changing `DATABASE_URL` (and `DATABASE_CA_CERT`, if the new one uses a private CA).
+
+## Security
+
+Found a vulnerability? Please report it privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

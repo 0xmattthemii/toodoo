@@ -4,9 +4,10 @@ import { format, isValid, parse } from "date-fns";
  * A deadline is a calendar day, not an instant: "due September 24" means the
  * 24th in Zurich and in Los Angeles alike. It travels and is stored as
  * `YYYY-MM-DD` (a Postgres `date`) and only becomes a `Date` on screen, at
- * local midnight. Never round-trip it through `toISOString()` or
- * `new Date("YYYY-MM-DD")` — both read it as UTC and move it a day for anyone
- * west or east of Greenwich.
+ * local midnight. Never round-trip it through `toISOString()`, which moves
+ * local midnight to the day before east of Greenwich, or
+ * `new Date("YYYY-MM-DD")`, which reads UTC midnight: the day before west of
+ * it.
  */
 
 const DAY = /^(\d{4}-\d{2}-\d{2})(?:T.*)?$/;

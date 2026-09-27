@@ -553,7 +553,15 @@ fn handle_deep_link(app: &AppHandle, url: &Url, source: LinkSource) {
     match current_server(app) {
         Some(base) => match deep_link_to_web_url(&base, url) {
             Some(target) => open_in_main_window(app, target),
-            None => focus_main_window(app),
+            None => {
+                // Host and path only: a rejected link's query may carry a token.
+                eprintln!(
+                    "[toodoo] ignored a deep link that isn't a page: {}{}",
+                    url.host_str().unwrap_or_default(),
+                    url.path()
+                );
+                focus_main_window(app);
+            }
         },
         None => show_connect_page(app, None),
     }
