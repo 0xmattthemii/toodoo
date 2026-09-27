@@ -107,7 +107,7 @@ Schema in [`src/db/schema`](src/db/schema), migrations in [`drizzle/`](drizzle).
 
 ## Security
 
-Found a vulnerability? Please report it privately, as described in [SECURITY.md](SECURITY.md).
+Found a vulnerability? Please report it privately, as described in [SECURITY.md](.github/SECURITY.md).
 
 ## License
 
