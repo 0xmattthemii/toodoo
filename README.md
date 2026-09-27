@@ -9,7 +9,7 @@ A simple, minimalist todo app for teams. Self-host it or [deploy it to Vercel](#
 
 - **Tasks** with deadlines, status and several assignees
 - **Projects** with admin/member roles, an icon and a color
-- **Invitations** by email. Existing users are added right away, new ones when they sign up
+- **Invitations** by email. Accounts with a verified address are added right away, everyone else once they confirm their address
 - **Boards** as a list or kanban, with group by, sort and stackable filters. Drag to reorder tasks, move them between columns or projects, and rearrange the sidebar
 - **Saved views** that keep any board setup in the sidebar
 
@@ -32,6 +32,17 @@ docker run -d --name toodoo-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=tood
 
 Open [http://localhost:3000](http://localhost:3000) and create an account.
 
+### Tests
+
+The tests run the server actions against a real Postgres database, which they erase first, so they only accept a local database named like `toodoo_test`. With the throwaway container above:
+
+```bash
+docker exec toodoo-pg createdb -U postgres toodoo_test
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:54329/toodoo_test pnpm test
+```
+
+CI runs lint, these tests, a production build and the desktop app's unit tests on every pull request and push to `main`.
+
 ## Deploy your own
 
 - **Vercel:** the **Deploy with Vercel** button above forks the repo and asks for `DATABASE_URL` and `BETTER_AUTH_SECRET`. After the first deploy, run `pnpm drizzle-kit migrate` against your database.
@@ -44,9 +55,10 @@ Everything is set through environment variables. No code changes or rebuilds are
 | Variable | Required | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string (use a pooled URL on serverless) |
+| `DATABASE_CA_CERT` | no | PEM certificate of your database's CA, for providers that don't use a publicly trusted one, such as [Supabase](https://supabase.com/docs/guides/platform/ssl-enforcement). The certificate of any remote database is verified, whatever `sslmode` the URL names, unless it says `sslmode=disable` or `sslmode=no-verify` |
 | `BETTER_AUTH_SECRET` | yes | Session signing secret (`openssl rand -base64 32`) |
 | `BETTER_AUTH_URL` | outside Vercel | Public base URL of the app |
-| `RESEND_API_KEY` | no | [Resend](https://resend.com) key for reset, verification and invitation emails. Without it, emails are only logged |
+| `RESEND_API_KEY` | no | [Resend](https://resend.com) key for reset, verification and invitation emails. Without it, emails are only logged, and invitations can only be accepted through Google sign-in (see below) |
 | `EMAIL_FROM` | no | Sender address for outgoing email |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | Turns on [Google sign-in](#google-sign-in) |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | no | Comma-separated domains allowed to sign up, for example `acme.com,acme.dev` |
@@ -54,6 +66,8 @@ Everything is set through environment variables. No code changes or rebuilds are
 | `DESKTOP_RELEASES_REPO` | no | GitHub `owner/repo` the desktop download dialog points to. Only forks that ship their own build need it |
 
 The domain lock is enforced on the server for every sign-in method, and invitations to other domains are rejected. Password accounts created before you add the lock keep working.
+
+An invitation only turns into a membership once the invitee has proven they own the address: by clicking the verification email, or by signing in with Google. A domain lock doesn't replace that, since anyone can type a colleague's address into the sign-up form. Without `RESEND_API_KEY` no verification email goes out, so password-only invitees stay pending until they sign in with Google.
 
 ## Google sign-in
 
@@ -89,7 +103,11 @@ Tools: `list_projects`, `list_project_members`, `list_tasks`, `create_project`, 
 
 ## Database
 
-Schema in [`src/db/schema`](src/db/schema), migrations in [`drizzle/`](drizzle). It's plain Postgres, so you can switch providers by changing `DATABASE_URL`.
+Schema in [`src/db/schema`](src/db/schema), migrations in [`drizzle/`](drizzle). It's plain Postgres, so you can switch providers by changing `DATABASE_URL` (and `DATABASE_CA_CERT`, if the new one uses a private CA).
+
+## Security
+
+Found a vulnerability? Please report it privately, as described in [SECURITY.md](.github/SECURITY.md).
 
 ## License
 

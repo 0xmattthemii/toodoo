@@ -74,10 +74,11 @@ export const auth = betterAuth({
       });
     },
   },
-  // Password sign-ups get one verification email. Verification is never
-  // required to use the app; its only effect is convenience: a Google sign-in
-  // with the same address links straight into a *verified* password account,
-  // while an unverified one is asked for its password first (see
+  // Password sign-ups get one verification email. Signing in never requires
+  // it, but a verified address is what lets pending project invitations be
+  // accepted (acceptPendingInvitations), and a Google sign-in with the same
+  // address links straight into a *verified* password account, while an
+  // unverified one is asked for its password first (see
   // account.accountLinking below). Skipped when no mailer is configured.
   emailVerification: {
     sendOnSignUp: true,
@@ -87,7 +88,7 @@ export const auth = betterAuth({
         to: user.email,
         subject: "Verify your toodoo email",
         heading: "Verify your email",
-        body: `Hi ${user.name}, confirm this address so signing in with Google connects to this account automatically. This link expires in one hour.`,
+        body: `Hi ${user.name}, confirm this address to join the projects you're invited to and to let a Google sign-in connect to this account. This link expires in one hour.`,
         actionLabel: "Verify email",
         actionUrl: url,
       });

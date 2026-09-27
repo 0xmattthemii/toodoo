@@ -62,8 +62,10 @@ main README).
     the app's own window: the scheme is OS-wide, and no web page should be
     able to pop a browser open.
   - `toodoo://sign-in/callback?id=…` delivers a finished browser sign-in.
-  - `toodoo://host/path?query` is forwarded to `<server>/host/path?query` in
-    the main window.
+  - `toodoo://`, `toodoo://projects/<id>` and `toodoo://views/<id>` open that
+    page of the connected server in the main window. Any other link only
+    focuses the window: the scheme is OS-wide, and a link must never reach a
+    server route such as the sign-in handoff.
 - macOS menu bar: **Toodoo → Switch Server…**.
 - Single-instance: relaunching focuses the existing window. Window
   size/position persist across launches.

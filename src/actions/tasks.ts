@@ -7,11 +7,15 @@ import { db } from "@/db";
 import { taskAssignees, tasks } from "@/db/schema";
 import {
   canAccessTask,
+  getAssigneeIds,
   getReorderableTasks,
   nextTaskPosition,
   positionCase,
+  assigneeError,
   requireMembership,
+  unassignNonMembers,
 } from "@/lib/data";
+import { parseDeadline } from "@/lib/deadline";
 import { isValidId } from "@/lib/ids";
 import { positionSlots } from "@/lib/ordering";
 import { requireSession } from "@/lib/session";
@@ -19,7 +23,7 @@ import { requireSession } from "@/lib/session";
 type TaskInput = {
   title: string;
   description?: string;
-  deadline?: string | null; // ISO string
+  deadline?: string | null; // YYYY-MM-DD, see lib/deadline.ts
   projectId?: string | null;
   assigneeIds?: string[];
 };
@@ -32,11 +36,21 @@ export async function createTask(input: TaskInput & { id?: string }) {
     return { error: "Invalid task id" };
   }
 
+  const deadline = input.deadline ? parseDeadline(input.deadline) : null;
+  if (deadline === undefined) return { error: "Invalid deadline" };
+
   if (input.projectId) {
     await requireMembership(input.projectId, session.user.id);
   }
 
+  const invalidAssignees = await assigneeError(
+    session.user.id,
+    input.projectId || null,
+    input.assigneeIds ?? [],
+  );
+  if (invalidAssignees) return { error: invalidAssignees };
   const assigneeIds = [...new Set(input.assigneeIds ?? [])];
+
   const task = await db.transaction(async (tx) => {
     const [task] = await tx
       .insert(tasks)
@@ -44,7 +58,7 @@ export async function createTask(input: TaskInput & { id?: string }) {
         id: input.id,
         title,
         description: input.description?.trim() || null,
-        deadline: input.deadline ? new Date(input.deadline) : null,
+        deadline,
         projectId: input.projectId || null,
         position: nextTaskPosition(),
         createdBy: session.user.id,
@@ -70,10 +84,22 @@ export async function updateTask(taskId: string, input: TaskInput) {
 
   const title = input.title.trim();
   if (!title) return { error: "Task title is required" };
+  const deadline = input.deadline ? parseDeadline(input.deadline) : null;
+  if (deadline === undefined) return { error: "Invalid deadline" };
 
   const nextProjectId = input.projectId || null;
-  if (nextProjectId && nextProjectId !== task.projectId) {
+  const movesIntoProject = nextProjectId && nextProjectId !== task.projectId;
+  if (movesIntoProject) {
     await requireMembership(nextProjectId, session.user.id);
+  }
+  if (input.assigneeIds) {
+    const invalidAssignees = await assigneeError(
+      session.user.id,
+      nextProjectId,
+      input.assigneeIds,
+      await getAssigneeIds(taskId),
+    );
+    if (invalidAssignees) return { error: invalidAssignees };
   }
 
   // Replacing the assignees is a delete followed by an insert; without a
@@ -84,7 +110,7 @@ export async function updateTask(taskId: string, input: TaskInput) {
       .set({
         title,
         description: input.description?.trim() || null,
-        deadline: input.deadline ? new Date(input.deadline) : null,
+        deadline,
         projectId: nextProjectId,
         updatedAt: new Date(),
       })
@@ -99,6 +125,9 @@ export async function updateTask(taskId: string, input: TaskInput) {
           .values(assigneeIds.map((userId) => ({ taskId, userId })))
           .onConflictDoNothing();
       }
+    } else if (movesIntoProject) {
+      // Only the project's members can see it there.
+      await unassignNonMembers(tx, taskId, nextProjectId);
     }
   });
 
@@ -131,10 +160,16 @@ export async function moveTaskToProject(
     await requireMembership(projectId, session.user.id);
   }
 
-  await db
-    .update(tasks)
-    .set({ projectId, updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tasks)
+      .set({ projectId, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+    // Only the project's members can see it there.
+    if (projectId && projectId !== task.projectId) {
+      await unassignNonMembers(tx, taskId, projectId);
+    }
+  });
   revalidatePath("/", "layout");
   return { error: undefined };
 }

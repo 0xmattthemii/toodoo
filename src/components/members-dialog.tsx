@@ -92,10 +92,18 @@ export function MembersDialog({
       });
       if (!result) return;
       form.reset();
+      if (!result.emailSent) {
+        toast.warning(
+          "added" in result
+            ? "Added to the project, but the email to them couldn't be sent"
+            : "Invitation saved, but the email couldn't be sent. Ask them to sign up with this address",
+        );
+        return;
+      }
       toast.success(
         "added" in result
           ? "Added to the project"
-          : "Invited — they'll join when they sign up",
+          : "Invited — they'll join once they confirm their email",
       );
     });
   }

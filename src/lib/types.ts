@@ -1,4 +1,14 @@
-export type Role = "admin" | "member";
+export const ROLES = ["admin", "member"] as const;
+
+export type Role = (typeof ROLES)[number];
+
+/**
+ * `Role` is only a compile-time promise: a server action or MCP call can be
+ * sent any value at all. Every write of a role goes through this first.
+ */
+export function isRole(value: unknown): value is Role {
+  return (ROLES as readonly unknown[]).includes(value);
+}
 
 export type Person = {
   id: string;
@@ -23,7 +33,8 @@ export type TaskWithMeta = {
   title: string;
   description: string | null;
   done: boolean;
-  deadline: Date | null;
+  /** A calendar day, `YYYY-MM-DD` — the same day for everyone, whatever their time zone. */
+  deadline: string | null;
   projectId: string | null;
   projectName: string | null;
   /** Ascending manual order; see `sortBy: "manual"`. */

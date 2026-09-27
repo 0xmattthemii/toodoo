@@ -29,7 +29,7 @@ export type WorkspaceSnapshot = {
   me: Person;
   projects: ProjectSummary[];
   views: ViewSummary[];
-  /** Tasks in the user's projects, created by them, or assigned to them. */
+  /** Tasks in the user's projects, and their own or assigned tasks outside any. */
   tasks: TaskWithMeta[];
   /** Members of every project the user is in (includes the user). */
   memberships: ProjectMembership[];
@@ -197,8 +197,17 @@ export function removeMember(projectId: string, userId: string): Mutation {
           memberships: s.memberships.filter(
             (m) => !(m.projectId === projectId && m.user.id === userId),
           ),
-          // An assignee who left keeps their spot on the task; the server's
-          // next snapshot decides.
+          // The server unassigns them from the project's tasks, which they
+          // can no longer see.
+          tasks: s.tasks.map((t) =>
+            t.projectId === projectId &&
+            t.assignees.some((person) => person.id === userId)
+              ? {
+                  ...t,
+                  assignees: t.assignees.filter((person) => person.id !== userId),
+                }
+              : t,
+          ),
         };
 }
 

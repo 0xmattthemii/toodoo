@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { deadlineDate, toDeadline } from "@/lib/deadline";
 import { newId } from "@/lib/ids";
 import type {
   Person,
@@ -57,17 +58,15 @@ export function TaskDialog({
   onOpenChange,
   task,
   projects,
-  people,
   defaultProjectId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   task: TaskWithMeta | null;
   projects: ProjectSummary[];
-  people: Person[];
   defaultProjectId?: string;
 }) {
-  const { me, mutate, tasks } = useWorkspace();
+  const { me, mutate, tasks, people, membersOf } = useWorkspace();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
@@ -94,7 +93,7 @@ export function TaskDialog({
       setProjectId(
         task ? (task.projectId ?? NO_PROJECT) : (defaultProjectId ?? NO_PROJECT),
       );
-      setDeadline(task?.deadline ? new Date(task.deadline) : undefined);
+      setDeadline(task?.deadline ? deadlineDate(task.deadline) : undefined);
       setDeadlineOpen(false);
       setAssigneeIds(task?.assignees.map((person) => person.id) ?? []);
       setPane("task");
@@ -111,7 +110,24 @@ export function TaskDialog({
     { value: NEW_PROJECT, label: "New project" },
   ];
 
-  const selectedAssignees = people.filter((person) =>
+  // Only people who can see the task may be assigned it (the server holds
+  // to the same rule): a project's members, or, outside any project, everyone
+  // who shares a project with you. Whoever is already on a task outside any
+  // project stays listed, so they can still be taken off it. Anyone picked
+  // who isn't an option any more — the project changed — is dropped on save.
+  const selectedProjectId =
+    projectId === NO_PROJECT || projectId === NEW_PROJECT ? null : projectId;
+  const assigneeOptions: Person[] = selectedProjectId
+    ? membersOf(selectedProjectId)
+    : [
+        ...people,
+        ...(task && !task.projectId
+          ? task.assignees.filter(
+              (assignee) => !people.some((person) => person.id === assignee.id),
+            )
+          : []),
+      ];
+  const selectedAssignees = assigneeOptions.filter((person) =>
     assigneeIds.includes(person.id),
   );
 
@@ -153,20 +169,20 @@ export function TaskDialog({
     const input = {
       title: trimmedTitle,
       description,
-      deadline: deadline ? deadline.toISOString() : null,
+      deadline: deadline ? toDeadline(deadline) : null,
       projectId: nextProjectId,
-      assigneeIds,
+      assigneeIds: selectedAssignees.map((person) => person.id),
     };
     const fields = {
       title: trimmedTitle,
       description: description.trim() || null,
-      deadline: deadline ?? null,
+      deadline: input.deadline,
       projectId: nextProjectId,
       projectName: nextProjectId
         ? (projects.find((project) => project.id === nextProjectId)?.name ??
           null)
         : null,
-      assignees: people.filter((person) => assigneeIds.includes(person.id)),
+      assignees: selectedAssignees,
     };
 
     if (task) {
@@ -397,7 +413,7 @@ export function TaskDialog({
                       )}
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="w-64">
-                      {people.map((person) => (
+                      {assigneeOptions.map((person) => (
                         <DropdownMenuCheckboxItem
                           key={person.id}
                           checked={assigneeIds.includes(person.id)}

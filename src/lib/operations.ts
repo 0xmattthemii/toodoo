@@ -4,10 +4,22 @@ import { db } from "@/db";
 import { projectMembers, projects, taskAssignees, tasks } from "@/db/schema";
 import {
   canAccessTask,
+  getAssigneeIds,
   nextProjectMemberPosition,
   nextTaskPosition,
+  requireAssignable,
   requireMembership,
+  unassignNonMembers,
 } from "@/lib/data";
+import { parseDeadline } from "@/lib/deadline";
+
+/** The day a deadline names, `null` to clear; throws on anything else. */
+function requireDeadline(value: string | null | undefined) {
+  if (!value) return null;
+  const deadline = parseDeadline(value);
+  if (!deadline) throw new Error("Deadline must be a date, e.g. 2026-09-15");
+  return deadline;
+}
 
 /**
  * User-scoped mutations shared by surfaces that don't carry a cookie session
@@ -52,18 +64,20 @@ export async function createTaskFor(
 ) {
   const title = input.title.trim();
   if (!title) throw new Error("Task title is required");
+  const deadline = requireDeadline(input.deadline);
   if (input.projectId) {
     await requireMembership(input.projectId, userId);
   }
 
   const assigneeIds = [...new Set(input.assigneeIds ?? [])];
+  await requireAssignable(userId, input.projectId || null, assigneeIds);
   return db.transaction(async (tx) => {
     const [task] = await tx
       .insert(tasks)
       .values({
         title,
         description: input.description?.trim() || null,
-        deadline: input.deadline ? new Date(input.deadline) : null,
+        deadline,
         projectId: input.projectId || null,
         position: nextTaskPosition(),
         createdBy: userId,
@@ -106,14 +120,22 @@ export async function updateTaskFor(
   }
   if (input.done !== undefined) patch.done = input.done;
   if (input.deadline !== undefined) {
-    patch.deadline = input.deadline ? new Date(input.deadline) : null;
+    patch.deadline = requireDeadline(input.deadline);
   }
-  if (input.projectId !== undefined) {
-    const nextProjectId = input.projectId || null;
-    if (nextProjectId && nextProjectId !== task.projectId) {
-      await requireMembership(nextProjectId, userId);
-    }
+  const nextProjectId =
+    input.projectId !== undefined ? input.projectId || null : task.projectId;
+  const movesProject = nextProjectId !== task.projectId;
+  if (movesProject) {
+    if (nextProjectId) await requireMembership(nextProjectId, userId);
     patch.projectId = nextProjectId;
+  }
+  if (input.assigneeIds !== undefined) {
+    await requireAssignable(
+      userId,
+      nextProjectId,
+      input.assigneeIds,
+      await getAssigneeIds(taskId),
+    );
   }
 
   return db.transaction(async (tx) => {
@@ -132,6 +154,9 @@ export async function updateTaskFor(
           .values(assigneeIds.map((assignee) => ({ taskId, userId: assignee })))
           .onConflictDoNothing();
       }
+    } else if (movesProject && nextProjectId) {
+      // Only the new project's members can see it there.
+      await unassignNonMembers(tx, taskId, nextProjectId);
     }
     return updated;
   });

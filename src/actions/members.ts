@@ -1,19 +1,29 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { db } from "@/db";
-import { projectInvitations, projectMembers, user } from "@/db/schema";
+import {
+  projectInvitations,
+  projectMembers,
+  taskAssignees,
+  tasks,
+  user,
+} from "@/db/schema";
+import { auth } from "@/lib/auth";
 import { allowedEmailDomains, isEmailDomainAllowed } from "@/lib/auth-flags";
 import {
+  getMembership,
   getProject,
   nextProjectMemberPosition,
   requireMembership,
+  withProjectLock,
+  type Executor,
 } from "@/lib/data";
 import { appUrl, sendEmail } from "@/lib/email";
 import { requireSession } from "@/lib/session";
-import type { Role } from "@/lib/types";
+import { isRole, type Role } from "@/lib/types";
 import { formatEmailDomains } from "@/lib/utils";
 
 export async function inviteToProject(
@@ -22,6 +32,7 @@ export async function inviteToProject(
   role: Role = "member",
 ) {
   const session = await requireSession();
+  if (!isRole(role)) return { error: "Unknown role" };
   await requireMembership(projectId, session.user.id, "admin");
 
   const normalized = email.trim().toLowerCase();
@@ -38,14 +49,23 @@ export async function inviteToProject(
   }
 
   const [existing] = await db
-    .select({ id: user.id, name: user.name, email: user.email, image: user.image })
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      emailVerified: user.emailVerified,
+    })
     .from(user)
     .where(eq(user.email, normalized));
 
   const project = await getProject(projectId);
   const inviter = session.user.name;
 
-  if (existing) {
+  // Only an account that has proven it owns the address joins right away.
+  // Anyone else — no account yet, or one whose address isn't verified — gets
+  // an invitation that waits for the verification (acceptPendingInvitations).
+  if (existing?.emailVerified) {
     const inserted = await db
       .insert(projectMembers)
       .values({
@@ -59,20 +79,27 @@ export async function inviteToProject(
     if (inserted.length === 0) {
       return { error: "That person is already a member" };
     }
-    try {
-      await sendEmail({
+    const emailSent = await attempt("member-added email", () =>
+      sendEmail({
         to: normalized,
         subject: `${inviter} added you to ${project?.name ?? "a project"} on toodoo`,
         heading: `You've been added to ${project?.name ?? "a project"}`,
         body: `${inviter} added you to the project "${project?.name ?? ""}" on toodoo. You can see its tasks right away.`,
         actionLabel: "Open the project",
         actionUrl: appUrl(`/projects/${projectId}`),
-      });
-    } catch (error) {
-      console.error("[email] failed to send member-added email", error);
-    }
+      }),
+    );
     revalidatePath("/", "layout");
-    return { added: true as const, member: { ...existing, role } };
+    const { id, name, image } = existing;
+    return {
+      added: true as const,
+      member: { id, name, email: existing.email, image, role },
+      emailSent,
+    };
+  }
+
+  if (existing && (await getMembership(projectId, existing.id))) {
+    return { error: "That person is already a member" };
   }
 
   const inserted = await db
@@ -83,18 +110,36 @@ export async function inviteToProject(
   if (inserted.length === 0) {
     return { error: "That email has already been invited" };
   }
-  try {
-    await sendEmail({
-      to: normalized,
-      subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
-      heading: `${inviter} invited you to toodoo`,
-      body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Create an account with this email address and you'll join the project automatically.`,
-      actionLabel: "Sign up",
-      actionUrl: appUrl("/signup"),
-    });
-  } catch (error) {
-    console.error("[email] failed to send invitation email", error);
-  }
+  // An existing account's sign-up verification link has most likely expired
+  // (they last an hour), so it gets a fresh one along with the invitation.
+  const verificationSent =
+    !existing ||
+    (await attempt("verification email", () =>
+      auth.api.sendVerificationEmail({
+        body: { email: normalized, callbackURL: `/projects/${projectId}` },
+      }),
+    ));
+  const invitationSent = await attempt("invitation email", () =>
+    sendEmail(
+      existing
+        ? {
+            to: normalized,
+            subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
+            heading: `${inviter} invited you to ${project?.name ?? "a project"}`,
+            body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Confirm your email address with the verification link we've just sent you, and you'll join the project automatically.`,
+            actionLabel: "Open toodoo",
+            actionUrl: appUrl("/"),
+          }
+        : {
+            to: normalized,
+            subject: `${inviter} invited you to ${project?.name ?? "a project"} on toodoo`,
+            heading: `${inviter} invited you to toodoo`,
+            body: `${inviter} invited you to collaborate on "${project?.name ?? "a project"}". Create an account with this email address and confirm it, and you'll join the project automatically.`,
+            actionLabel: "Sign up",
+            actionUrl: appUrl("/signup"),
+          },
+    ),
+  );
   revalidatePath("/", "layout");
   const [invitation] = inserted;
   return {
@@ -106,7 +151,23 @@ export async function inviteToProject(
       role: invitation.role,
       createdAt: invitation.createdAt,
     },
+    emailSent: verificationSent && invitationSent,
   };
+}
+
+/**
+ * Sends one email, reporting whether it went out. The membership or
+ * invitation it announces is already saved, so a mail failure is logged and
+ * surfaced to the admin rather than failing the request.
+ */
+async function attempt(what: string, send: () => Promise<unknown>) {
+  try {
+    await send();
+    return true;
+  } catch (error) {
+    console.error(`[email] could not send the ${what}`, error);
+    return false;
+  }
 }
 
 export async function revokeInvitation(
@@ -127,8 +188,8 @@ export async function revokeInvitation(
   return { error: undefined };
 }
 
-async function countAdmins(projectId: string) {
-  const admins = await db
+async function countAdmins(tx: Executor, projectId: string) {
+  const admins = await tx
     .select({ userId: projectMembers.userId })
     .from(projectMembers)
     .where(
@@ -140,76 +201,86 @@ async function countAdmins(projectId: string) {
   return admins.length;
 }
 
+// Role changes and removals check and write under the project's lock; see
+// withProjectLock for why.
+
 export async function updateMemberRole(
   projectId: string,
   userId: string,
   role: Role,
 ) {
   const session = await requireSession();
-  await requireMembership(projectId, session.user.id, "admin");
+  if (!isRole(role)) return { error: "Unknown role" };
 
-  if (role === "member") {
-    const membership = await db
-      .select()
-      .from(projectMembers)
+  const result = await withProjectLock(projectId, async (tx) => {
+    await requireMembership(projectId, session.user.id, "admin", tx);
+    const target = await getMembership(projectId, userId, tx);
+    if (!target) return { error: "Not a member" };
+    if (
+      target.role === "admin" &&
+      role !== "admin" &&
+      (await countAdmins(tx, projectId)) <= 1
+    ) {
+      return { error: "A project needs at least one admin" };
+    }
+    await tx
+      .update(projectMembers)
+      .set({ role })
       .where(
         and(
           eq(projectMembers.projectId, projectId),
           eq(projectMembers.userId, userId),
         ),
       );
-    if (
-      membership[0]?.role === "admin" &&
-      (await countAdmins(projectId)) <= 1
-    ) {
-      return { error: "A project needs at least one admin" };
-    }
-  }
-
-  await db
-    .update(projectMembers)
-    .set({ role })
-    .where(
-      and(
-        eq(projectMembers.projectId, projectId),
-        eq(projectMembers.userId, userId),
-      ),
-    );
+    return { error: undefined };
+  });
   revalidatePath("/", "layout");
-  return { error: undefined };
+  return result;
 }
 
 export async function removeMember(projectId: string, userId: string) {
   const session = await requireSession();
   const isSelf = userId === session.user.id;
-  if (!isSelf) {
-    await requireMembership(projectId, session.user.id, "admin");
-  } else {
-    await requireMembership(projectId, session.user.id);
-  }
 
-  const [target] = await db
-    .select()
-    .from(projectMembers)
-    .where(
-      and(
-        eq(projectMembers.projectId, projectId),
-        eq(projectMembers.userId, userId),
-      ),
+  const result = await withProjectLock(projectId, async (tx) => {
+    await requireMembership(
+      projectId,
+      session.user.id,
+      isSelf ? undefined : "admin",
+      tx,
     );
-  if (!target) return { error: "Not a member" };
-  if (target.role === "admin" && (await countAdmins(projectId)) <= 1) {
-    return { error: "A project needs at least one admin" };
-  }
+    const target = await getMembership(projectId, userId, tx);
+    if (!target) return { error: "Not a member" };
+    if (target.role === "admin" && (await countAdmins(tx, projectId)) <= 1) {
+      return { error: "A project needs at least one admin" };
+    }
 
-  await db
-    .delete(projectMembers)
-    .where(
-      and(
-        eq(projectMembers.projectId, projectId),
-        eq(projectMembers.userId, userId),
-      ),
-    );
+    await tx
+      .delete(projectMembers)
+      .where(
+        and(
+          eq(projectMembers.projectId, projectId),
+          eq(projectMembers.userId, userId),
+        ),
+      );
+    // They can no longer see the project's tasks (visibleTasksWhere), so
+    // leaving them assigned would only show a name nobody can reach.
+    await tx
+      .delete(taskAssignees)
+      .where(
+        and(
+          eq(taskAssignees.userId, userId),
+          inArray(
+            taskAssignees.taskId,
+            tx
+              .select({ id: tasks.id })
+              .from(tasks)
+              .where(eq(tasks.projectId, projectId)),
+          ),
+        ),
+      );
+    return { removedSelf: isSelf };
+  });
   revalidatePath("/", "layout");
-  return { removedSelf: isSelf };
+  return result;
 }

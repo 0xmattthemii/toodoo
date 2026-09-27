@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 
+import { postgresConnection } from "./connection";
 import * as schema from "./schema";
 
 declare global {
@@ -11,16 +12,6 @@ const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error("DATABASE_URL is not set");
-}
-
-/** Whether the URL points at this machine — the only case plain TCP is fine. */
-function isLocalDatabase(url: string) {
-  try {
-    return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname);
-  } catch {
-    // Not a URL the parser accepts; fall back to a substring check.
-    return /localhost|127\.0\.0\.1/.test(url);
-  }
 }
 
 /**
@@ -103,10 +94,8 @@ function withConnectRetry(pool: Pool) {
 
 function createPool(connectionString: string) {
   const pool = new Pool({
-    connectionString,
-    // Hosted Postgres providers require TLS but usually sign with their own
-    // CA, so certificate verification is disabled outside localhost.
-    ssl: isLocalDatabase(connectionString) ? undefined : { rejectUnauthorized: false },
+    // TLS with verified certificates off this machine; see ./connection.ts.
+    ...postgresConnection(connectionString),
     // Without this a wedged handshake sits until the OS gives up on the TCP
     // connect, minutes later. Long enough for a compute waking from suspend,
     // and a retry follows anyway.
