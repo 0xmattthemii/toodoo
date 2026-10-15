@@ -137,7 +137,7 @@ export const auth = betterAuth({
         // hiding, so it is logged and not retried here.
         after: async (created) => {
           try {
-            await joinWorkspaceOnSignUp(created.id);
+            await joinWorkspaceOnSignUp(created.id, created.email);
           } catch (error) {
             console.error("[auth] could not add the new account to the workspace", error);
           }

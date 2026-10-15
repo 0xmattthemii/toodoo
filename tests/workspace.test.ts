@@ -45,11 +45,11 @@ async function giveAddress(who: TestUser, email: string) {
 describe("joining the workspace", () => {
   it("makes the first account its owner, and later ones members", async () => {
     const first = await createUser("First", { workspaceRole: null });
-    await joinWorkspaceOnSignUp(first.id);
+    await joinWorkspaceOnSignUp(first.id, first.email);
     expect(await workspaceRoleOf(first)).toBe("owner");
 
     const second = await createUser("Second", { workspaceRole: null });
-    await joinWorkspaceOnSignUp(second.id);
+    await joinWorkspaceOnSignUp(second.id, second.email);
     expect(await workspaceRoleOf(second)).toBe("member");
   });
 
@@ -70,7 +70,7 @@ describe("joining the workspace", () => {
 
     // An account let in by an invitation waits for it instead of joining.
     const colleague = await createUser("Colleague", { workspaceRole: null });
-    await joinWorkspaceOnSignUp(colleague.id);
+    await joinWorkspaceOnSignUp(colleague.id, "colleague@test.dev");
     expect(await workspaceRoleOf(colleague)).toBeNull();
   });
 
@@ -148,6 +148,28 @@ describe("guests", () => {
     const { projectId, client } = await guestInProject();
     expect(await workspaceRoleOf(client)).toBe("guest");
     expect(await roleIn(projectId, client)).toBe("member");
+  });
+
+  it("are what they become even with sign-ups open", async () => {
+    const owner = await createUser("Owner", { workspaceRole: "owner" });
+    const projectId = await createProject([[owner, "admin"]]);
+    await as(owner, () =>
+      inviteToProject(projectId, "contractor@test.dev", "member"),
+    );
+    const contractor = await giveAddress(
+      await createUser("Contractor", { workspaceRole: null }),
+      "contractor@test.dev",
+    );
+    // Signing up doesn't make them a member: the invitation decides.
+    await joinWorkspaceOnSignUp(contractor.id, contractor.email);
+    expect(await workspaceRoleOf(contractor)).toBeNull();
+    await acceptPendingInvitations(contractor.id);
+    expect(await workspaceRoleOf(contractor)).toBe("guest");
+
+    // Someone signing up on their own still joins as a member.
+    const walkIn = await createUser("Walk-in", { workspaceRole: null });
+    await joinWorkspaceOnSignUp(walkIn.id, walkIn.email);
+    expect(await workspaceRoleOf(walkIn)).toBe("member");
   });
 
   it("can't create projects", async () => {

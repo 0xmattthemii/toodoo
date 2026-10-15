@@ -176,8 +176,12 @@ export async function canCreateAccount(email: string) {
  * one, member while sign-ups are open. Otherwise an invitation let it in, and
  * it joins in that invitation's role once its address is verified
  * (acceptPendingInvitations).
+ *
+ * Someone who signs up because a project invited them is an outsider brought
+ * in for that project, whatever the sign-up setting: they wait for the
+ * invitation, which makes them a guest, rather than joining as a member.
  */
-export async function joinWorkspaceOnSignUp(userId: string) {
+export async function joinWorkspaceOnSignUp(userId: string, email: string) {
   await withWorkspaceLock(async (tx) => {
     if (await isEmpty(tx)) {
       await tx
@@ -188,9 +192,37 @@ export async function joinWorkspaceOnSignUp(userId: string) {
     }
     const { signupsEnabled } = await getWorkspaceSettings(tx);
     if (!signupsEnabled) return;
+    if (await invitedToProjectOnly(email, tx)) return;
     await tx
       .insert(workspaceMembers)
       .values({ userId, role: "member" })
       .onConflictDoNothing();
   });
+}
+
+/** A project invitation awaits `email`, and no workspace invitation does. */
+async function invitedToProjectOnly(email: string, tx: Executor) {
+  const address = email.trim().toLowerCase();
+  const [toWorkspace] = await tx
+    .select({ id: workspaceInvitations.id })
+    .from(workspaceInvitations)
+    .where(
+      and(
+        eq(workspaceInvitations.email, address),
+        eq(workspaceInvitations.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (toWorkspace) return false;
+  const [toProject] = await tx
+    .select({ id: projectInvitations.id })
+    .from(projectInvitations)
+    .where(
+      and(
+        eq(projectInvitations.email, address),
+        eq(projectInvitations.status, "pending"),
+      ),
+    )
+    .limit(1);
+  return Boolean(toProject);
 }
