@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   Trash2,
+  UserPlus,
 } from "lucide-react";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -245,11 +246,13 @@ export function WorkspaceDialog({
             Allow sign-ups
           </label>
           <Button
-            variant="outline"
             size="sm"
             disabled={!data}
             onClick={() => setInviteOpen(true)}
           >
+            {/* Marked so the button trims its padding on the icon's side,
+                which is what centres icon and label together. */}
+            <UserPlus data-icon="inline-start" />
             Invite
           </Button>
         </div>
@@ -325,7 +328,7 @@ export function WorkspaceDialog({
                               onClick={() => ask({ kind: "remove", person })}
                             >
                               <Trash2 />
-                              Remove from workspace
+                              Remove
                             </DropdownMenuItem>
                           ) : null}
                         </RowMenu>
