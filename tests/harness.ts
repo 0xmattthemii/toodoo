@@ -9,9 +9,11 @@ import {
   taskAssignees,
   tasks,
   user,
+  workspaceMembers,
+  workspaceSettings,
 } from "@/db/schema";
 import type { requireSession } from "@/lib/session";
-import type { Role } from "@/lib/types";
+import type { Role, WorkspaceRole } from "@/lib/types";
 
 export type TestUser = { id: string; name: string; email: string };
 
@@ -53,9 +55,17 @@ export function as<T>(who: TestUser, action: () => Promise<T>) {
 
 let counter = 0;
 
+/**
+ * A user, in the workspace as `workspaceRole` — a member unless told
+ * otherwise, or not in it at all with `null` (someone who signed up through
+ * an invitation and hasn't accepted it yet).
+ */
 export async function createUser(
   name: string,
-  { verified = true }: { verified?: boolean } = {},
+  {
+    verified = true,
+    workspaceRole = "member",
+  }: { verified?: boolean; workspaceRole?: WorkspaceRole | null } = {},
 ): Promise<TestUser> {
   counter += 1;
   const person = {
@@ -64,7 +74,32 @@ export async function createUser(
     email: `${name.toLowerCase().replaceAll(" ", "-")}-${counter}@test.dev`,
   };
   await db.insert(user).values({ ...person, emailVerified: verified });
+  if (workspaceRole) {
+    await db
+      .insert(workspaceMembers)
+      .values({ userId: person.id, role: workspaceRole });
+  }
   return person;
+}
+
+/** The user's workspace role, `"removed"` once deactivated, null without one. */
+export async function workspaceRoleOf(who: TestUser) {
+  const [row] = await db
+    .select({
+      role: workspaceMembers.role,
+      deactivatedAt: workspaceMembers.deactivatedAt,
+    })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, who.id));
+  if (!row) return null;
+  return row.deactivatedAt ? "removed" : row.role;
+}
+
+export async function setSignupsEnabled(signupsEnabled: boolean) {
+  await db
+    .insert(workspaceSettings)
+    .values({ id: 1, signupsEnabled })
+    .onConflictDoUpdate({ target: workspaceSettings.id, set: { signupsEnabled } });
 }
 
 export async function verifyEmail(who: TestUser) {

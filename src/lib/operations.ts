@@ -12,6 +12,7 @@ import {
   unassignNonMembers,
 } from "@/lib/data";
 import { parseDeadline } from "@/lib/deadline";
+import { requireWorkspaceRole } from "@/lib/workspace-access";
 
 /** The day a deadline names, `null` to clear; throws on anything else. */
 function requireDeadline(value: string | null | undefined) {
@@ -30,6 +31,7 @@ export async function createProjectFor(
   userId: string,
   input: { name: string; description?: string | null },
 ) {
+  await requireWorkspaceRole(userId, "member");
   const name = input.name.trim();
   if (!name) throw new Error("Project name is required");
 

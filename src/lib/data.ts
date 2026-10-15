@@ -21,6 +21,8 @@ import {
   tasks,
   user,
   views,
+  workspaceInvitations,
+  workspaceMembers,
 } from "@/db/schema";
 import { isValidId } from "@/lib/ids";
 import {
@@ -33,12 +35,19 @@ import {
   type Role,
   type TaskWithMeta,
   type ViewSummary,
+  type WorkspaceRole,
 } from "@/lib/types";
 import type {
   ProjectInvitation,
   ProjectMembership,
   WorkspaceSnapshot,
 } from "@/lib/workspace";
+import {
+  atLeast,
+  getWorkspaceMember,
+  getWorkspaceRole,
+  withWorkspaceLock,
+} from "@/lib/workspace-access";
 
 /** The database, or a transaction on it: whatever a query should run on. */
 export type Executor =
@@ -522,6 +531,13 @@ export async function getView(
  * the invitation was for. Unverified accounts keep their invitations pending
  * until the first page load after verification (or a Google sign-in, which
  * verifies the address).
+ *
+ * Workspace invitations go first: they make the user a member or an admin,
+ * never less than they already are. A project invitation then adds them to
+ * the project, and to the workspace as a guest if they weren't in it — so an
+ * outsider invited to one project sees that project and nothing else.
+ * Someone removed from the workspace doesn't come back through an invitation
+ * sent before; an admin restores them instead.
  */
 export async function acceptPendingInvitations(userId: string) {
   const [account] = await db
@@ -529,13 +545,61 @@ export async function acceptPendingInvitations(userId: string) {
     .from(user)
     .where(eq(user.id, userId));
   if (!account?.emailVerified) return;
+  const email = account.email.toLowerCase();
+  if ((await getWorkspaceMember(userId))?.deactivatedAt) return;
+
+  const toWorkspace = await db
+    .select()
+    .from(workspaceInvitations)
+    .where(
+      and(
+        eq(workspaceInvitations.email, email),
+        eq(workspaceInvitations.status, "pending"),
+      ),
+    );
+  for (const invitation of toWorkspace) {
+    try {
+      await withWorkspaceLock(async (tx) => {
+        const [claimed] = await tx
+          .update(workspaceInvitations)
+          .set({ status: "accepted" })
+          .where(
+            and(
+              eq(workspaceInvitations.id, invitation.id),
+              eq(workspaceInvitations.status, "pending"),
+            ),
+          )
+          .returning({ id: workspaceInvitations.id });
+        if (!claimed) return;
+        const current = await getWorkspaceMember(userId, tx);
+        if (!current) {
+          await tx
+            .insert(workspaceMembers)
+            .values({ userId, role: invitation.role });
+        } else if (
+          !current.deactivatedAt &&
+          !atLeast(current.role, invitation.role)
+        ) {
+          await tx
+            .update(workspaceMembers)
+            .set({ role: invitation.role })
+            .where(eq(workspaceMembers.userId, userId));
+        }
+      });
+    } catch (error) {
+      console.error(
+        `[invitations] could not accept workspace invitation ${invitation.id}`,
+        error,
+      );
+    }
+  }
 
   const pending = await db
     .select()
     .from(projectInvitations)
     .where(
       and(
-        eq(projectInvitations.email, account.email.toLowerCase()),
+        eq(projectInvitations.email, email),
         eq(projectInvitations.status, "pending"),
       ),
     );
@@ -557,11 +621,20 @@ export async function acceptPendingInvitations(userId: string) {
           .returning({ id: projectInvitations.id });
         if (!claimed) return;
         await tx
+          .insert(workspaceMembers)
+          .values({ userId, role: "guest" })
+          .onConflictDoNothing();
+        // Guests never administer a project (see inviteToProject).
+        const role =
+          (await getWorkspaceRole(userId, tx)) === "guest"
+            ? "member"
+            : invitation.role;
+        await tx
           .insert(projectMembers)
           .values({
             projectId: invitation.projectId,
             userId,
-            role: invitation.role,
+            role,
             position: nextProjectMemberPosition(userId),
           })
           .onConflictDoNothing();
@@ -594,15 +667,18 @@ export async function getProjectMemberships(
       name: user.name,
       email: user.email,
       image: user.image,
+      workspaceRole: workspaceMembers.role,
     })
     .from(projectMembers)
     .innerJoin(user, eq(projectMembers.userId, user.id))
+    .leftJoin(workspaceMembers, eq(workspaceMembers.userId, user.id))
     .where(inArray(projectMembers.projectId, myProjects))
     .orderBy(asc(projectMembers.createdAt));
 
-  return rows.map(({ projectId, role, ...person }) => ({
+  return rows.map(({ projectId, role, workspaceRole, ...person }) => ({
     projectId,
     role,
+    guest: workspaceRole === "guest",
     user: person,
   }));
 }
@@ -642,6 +718,7 @@ export async function getAdminInvitations(
  */
 export async function getWorkspaceSnapshot(
   me: Person,
+  workspaceRole: WorkspaceRole,
 ): Promise<WorkspaceSnapshot> {
   const [projects, views, tasks, memberships, invitations] = await Promise.all([
     getUserProjects(me.id),
@@ -650,5 +727,14 @@ export async function getWorkspaceSnapshot(
     getProjectMemberships(me.id),
     getAdminInvitations(me.id),
   ]);
-  return { at: Date.now(), me, projects, views, tasks, memberships, invitations };
+  return {
+    at: Date.now(),
+    me,
+    workspaceRole,
+    projects,
+    views,
+    tasks,
+    memberships,
+    invitations,
+  };
 }

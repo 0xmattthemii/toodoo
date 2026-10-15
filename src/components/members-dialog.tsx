@@ -1,8 +1,8 @@
 "use client";
 
-import { Users, X } from "lucide-react";
+import { LogOut, Trash2, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useState, useTransition } from "react";
+import { startTransition, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -11,29 +11,23 @@ import {
   revokeInvitation,
   updateMemberRole,
 } from "@/actions/members";
+import {
+  AccessDialogContent,
+  AccessRow,
+  AccessRowMenu,
+  AccessSectionLabel,
+  InvitationAvatar,
+  InviteButton,
+  InviteDialog,
+  PersonName,
+  RoleSelect,
+} from "@/components/access";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { LoadingButton } from "@/components/loading-button";
 import { UserAvatar } from "@/components/user-avatar";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { Role } from "@/lib/types";
 import {
   addInvitation,
@@ -43,16 +37,19 @@ import {
   setMemberRole,
 } from "@/lib/workspace";
 
+const ROLE_LABELS: Record<Role, string> = { admin: "Admin", member: "Member" };
+const ROLES: Role[] = ["admin", "member"];
+
 /** The removal a confirmation is currently asking about. */
 type Pending =
   | { kind: "member"; id: string; name: string; self: boolean }
   | { kind: "invitation"; id: string; email: string };
 
-const ROLE_ITEMS = [
-  { value: "member", label: "Member" },
-  { value: "admin", label: "Admin" },
-];
-
+/**
+ * Who is in a project and who is invited to it, laid out like the
+ * workspace's dialog (components/access.tsx). Project admins invite people,
+ * change roles and remove them; everyone else sees the list and can leave.
+ */
 export function MembersDialog({
   projectId,
   currentUserId,
@@ -63,49 +60,50 @@ export function MembersDialog({
   isAdmin: boolean;
 }) {
   const router = useRouter();
-  const { mutate, membersOf, invitationsOf } = useWorkspace();
-  const members = membersOf(projectId);
-  const invitations = invitationsOf(projectId);
-  const [inviteRole, setInviteRole] = useState<Role>("member");
+  const { mutate, membersOf, invitationsOf, projectsById } = useWorkspace();
+  const project = projectsById.get(projectId);
+  // Admins first, then members, each by name.
+  const members = [...membersOf(projectId)].sort(
+    (a, b) =>
+      Number(b.role === "admin") - Number(a.role === "admin") ||
+      a.name.localeCompare(b.name),
+  );
+  const adminCount = members.filter((member) => member.role === "admin").length;
+  const invitations = isAdmin ? invitationsOf(projectId) : [];
+  const [inviteOpen, setInviteOpen] = useState(false);
   // What the confirmation is about, kept after it closes so its copy doesn't
   // change mid-animation; `confirming` is what opens and closes it.
   const [pending, setPending] = useState<Pending | null>(null);
   const [confirming, setConfirming] = useState(false);
+
   // Only inviting waits for the server: whether the address belongs to an
   // existing account (added right away) or not (invited) is its answer.
-  const [inviting, startInviting] = useTransition();
-
-  function onInvite(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const email = String(new FormData(form).get("email"));
-    startInviting(async () => {
-      const result = await mutate({
-        action: () => inviteToProject(projectId, email, inviteRole),
-        failure: "Could not send the invitation",
-        commit: (result) =>
-          "added" in result && result.member
-            ? addMember(projectId, result.member)
-            : "invited" in result && result.invitation
-              ? addInvitation(result.invitation)
-              : null,
-      });
-      if (!result) return;
-      form.reset();
-      if (!result.emailSent) {
-        toast.warning(
-          "added" in result
-            ? "Added to the project, but the email to them couldn't be sent"
-            : "Invitation saved, but the email couldn't be sent. Ask them to sign up with this address",
-        );
-        return;
-      }
+  async function onInvite(email: string, role: Role) {
+    const result = await mutate({
+      action: () => inviteToProject(projectId, email, role),
+      failure: "Could not send the invitation",
+      commit: (result) =>
+        "added" in result && result.member
+          ? addMember(projectId, result.member)
+          : "invited" in result && result.invitation
+            ? addInvitation(result.invitation)
+            : null,
+    });
+    if (!result) return false;
+    if (!result.emailSent) {
+      toast.warning(
+        "added" in result
+          ? "Added to the project, but the email to them couldn't be sent"
+          : "Invitation saved, but the email couldn't be sent. Ask them to sign up with this address",
+      );
+    } else {
       toast.success(
         "added" in result
           ? "Added to the project"
-          : "Invited — they'll join once they confirm their email",
+          : "Invited. They'll join once they confirm their email.",
       );
-    });
+    }
+    return true;
   }
 
   function onRoleChange(userId: string, role: Role) {
@@ -164,157 +162,124 @@ export function MembersDialog({
         <Users />
         Manage Access
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Project members</DialogTitle>
-          <DialogDescription>
-            {isAdmin
-              ? "Invite people by email and manage their roles."
-              : "People with access to this project."}
-          </DialogDescription>
-        </DialogHeader>
-
-        {isAdmin ? (
-          <form onSubmit={onInvite} className="flex gap-2">
-            <Input
-              name="email"
-              type="email"
-              placeholder="teammate@example.com"
-              required
-              className="flex-1"
-            />
-            <Select
-              value={inviteRole}
-              onValueChange={(value) => setInviteRole(value as Role)}
-              items={ROLE_ITEMS}
-            >
-              <SelectTrigger className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ROLE_ITEMS.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <LoadingButton type="submit" loading={inviting}>
-              Invite
-            </LoadingButton>
-          </form>
-        ) : null}
-
-        <div className="flex flex-col gap-1">
-          {members.map((member) => (
-            <div
+      <AccessDialogContent
+        title={project?.name ?? "Project"}
+        description="The people in this project and its invitations."
+        count={members.length}
+        actions={
+          isAdmin ? <InviteButton onClick={() => setInviteOpen(true)} /> : null
+        }
+      >
+        {members.map((member) => {
+          const self = member.id === currentUserId;
+          // The rules the server holds to, shown before anyone tries: a
+          // project keeps at least one admin and at least one person.
+          const soleAdmin = member.role === "admin" && adminCount <= 1;
+          const cannotLeave =
+            members.length <= 1
+              ? "You're the only one here. Delete the project instead."
+              : soleAdmin
+                ? "Make someone else an admin first."
+                : null;
+          return (
+            <AccessRow
               key={member.id}
-              className="flex items-center gap-3 rounded-lg px-1 py-1.5"
-            >
-              <UserAvatar person={member} className="size-8" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {member.name}
-                  {member.id === currentUserId ? (
-                    <span className="text-muted-foreground"> (you)</span>
-                  ) : null}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {member.email}
-                </p>
-              </div>
-              {isAdmin ? (
-                <Select
+              avatar={<UserAvatar person={member} className="size-8" />}
+              title={<PersonName name={member.name} self={self} />}
+              subtitle={member.guest ? `${member.email} · Guest` : member.email}
+              role={
+                <RoleSelect
                   value={member.role}
-                  onValueChange={(value) =>
-                    onRoleChange(member.id, value as Role)
-                  }
-                  items={ROLE_ITEMS}
-                >
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROLE_ITEMS.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Badge variant="secondary" className="capitalize">
-                  {member.role}
-                </Badge>
-              )}
-              {isAdmin || member.id === currentUserId ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={
-                    member.id === currentUserId
-                      ? "Leave this project"
-                      : `Remove ${member.name}`
-                  }
+                  labels={ROLE_LABELS}
+                  options={ROLES}
+                  disabled={!isAdmin || soleAdmin}
+                  // Guests never administer a project.
+                  unavailable={member.guest ? ["admin"] : []}
+                  onChange={(role) => onRoleChange(member.id, role)}
+                />
+              }
+              menu={
+                self || isAdmin ? (
+                  <AccessRowMenu label={`Actions for ${member.name}`}>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={cannotLeave !== null}
+                      onClick={() =>
+                        ask({
+                          kind: "member",
+                          id: member.id,
+                          name: member.name,
+                          self,
+                        })
+                      }
+                    >
+                      {self ? <LogOut /> : <Trash2 />}
+                      {self ? "Leave project" : "Remove"}
+                    </DropdownMenuItem>
+                    {cannotLeave ? (
+                      <p className="max-w-56 px-1.5 pt-0.5 pb-1 text-xs text-muted-foreground">
+                        {cannotLeave}
+                      </p>
+                    ) : null}
+                  </AccessRowMenu>
+                ) : null
+              }
+            />
+          );
+        })}
+
+        {invitations.length > 0 ? (
+          <AccessSectionLabel>Invited</AccessSectionLabel>
+        ) : null}
+        {invitations.map((invitation) => (
+          <AccessRow
+            key={invitation.id}
+            avatar={<InvitationAvatar />}
+            title={invitation.email}
+            subtitle="Invitation sent"
+            role={
+              <RoleSelect
+                value={invitation.role}
+                labels={ROLE_LABELS}
+                options={ROLES}
+                disabled
+              />
+            }
+            menu={
+              <AccessRowMenu label={`Actions for ${invitation.email}`}>
+                <DropdownMenuItem
+                  variant="destructive"
                   onClick={() =>
                     ask({
-                      kind: "member",
-                      id: member.id,
-                      name: member.name,
-                      self: member.id === currentUserId,
+                      kind: "invitation",
+                      id: invitation.id,
+                      email: invitation.email,
                     })
                   }
                 >
-                  <X />
-                </Button>
-              ) : null}
-            </div>
-          ))}
-        </div>
+                  <Trash2 />
+                  Revoke invitation
+                </DropdownMenuItem>
+              </AccessRowMenu>
+            }
+          />
+        ))}
+      </AccessDialogContent>
 
-        {invitations.length > 0 && isAdmin ? (
-          <>
-            <Separator />
-            <div className="flex flex-col gap-1">
-              <p className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Pending invitations
-              </p>
-              {invitations.map((invitation) => (
-                <div
-                  key={invitation.id}
-                  className="flex items-center gap-3 rounded-lg px-1 py-1.5"
-                >
-                  <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                    {invitation.email}
-                  </p>
-                  <Badge variant="outline" className="capitalize">
-                    {invitation.role}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Revoke invitation for ${invitation.email}`}
-                    onClick={() =>
-                      ask({
-                        kind: "invitation",
-                        id: invitation.id,
-                        email: invitation.email,
-                      })
-                    }
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </DialogContent>
-
-      {/* Inside the Root, so base-ui stacks it on this dialog: one backdrop,
-          and Escape or a press outside takes only the confirmation away.
-          `pending` outlives the dialog, so its copy holds still on the way
-          out. */}
+      {/* Inside the Root, so base-ui stacks them on this dialog: one
+          backdrop, and Escape or a press outside takes only the top one
+          away. `pending` outlives the confirmation, so its copy holds still
+          on the way out. */}
+      <InviteDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        title={`Invite to ${project?.name ?? "this project"}`}
+        description="They'll get an email to join. Someone from outside the workspace joins as a guest and sees only this project."
+        roles={ROLES}
+        labels={ROLE_LABELS}
+        defaultRole="member"
+        onInvite={onInvite}
+      />
       {pending ? (
         <ConfirmDialog
           open={confirming}

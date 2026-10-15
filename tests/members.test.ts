@@ -101,6 +101,15 @@ describe("the last admin", () => {
     expect(await adminCount(projectId)).toBe(1);
   });
 
+  it("can't leave a project they are alone in", async () => {
+    const admin = await createUser("Admin");
+    const projectId = await createProject([[admin, "admin"]]);
+    expect(await as(admin, () => removeMember(projectId, admin.id))).toEqual({
+      error: "You're the last person in this project. Delete it instead.",
+    });
+    expect(await roleIn(projectId, admin)).toBe("admin");
+  });
+
   it("can once someone else is an admin", async () => {
     const admin = await createUser("Admin");
     const member = await createUser("Member");
@@ -202,9 +211,13 @@ describe("concurrent admin changes", () => {
   it.each(cases)("%s leaves exactly one admin", async (_, change) => {
     const first = await createUser("First");
     const second = await createUser("Second");
+    // Someone else stays, so the race is over the admins, not over who is
+    // left in the project at all.
+    const bystander = await createUser("Bystander");
     const projectId = await createProject([
       [first, "admin"],
       [second, "admin"],
+      [bystander, "member"],
     ]);
     const [byFirst, bySecond] = change(projectId, first.id, second.id);
 

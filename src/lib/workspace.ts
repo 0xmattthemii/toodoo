@@ -6,12 +6,15 @@ import type {
   Role,
   TaskWithMeta,
   ViewSummary,
+  WorkspaceRole,
 } from "@/lib/types";
 
 /** One user's membership in one project, with the member's profile. */
 export type ProjectMembership = {
   projectId: string;
   role: Role;
+  /** The member is a workspace guest. */
+  guest?: boolean;
   user: Person;
 };
 
@@ -27,6 +30,8 @@ export type WorkspaceSnapshot = {
   /** Server clock when the snapshot was read; an older snapshot never replaces a newer one. */
   at: number;
   me: Person;
+  /** The user's role in the workspace; what the UI offers follows it. */
+  workspaceRole: WorkspaceRole;
   projects: ProjectSummary[];
   views: ViewSummary[];
   /** Tasks in the user's projects, and their own or assigned tasks outside any. */
@@ -159,14 +164,14 @@ export function removeView(viewId: string): Mutation {
 // ---- members & invitations ----
 
 export function addMember(projectId: string, member: MemberWithUser): Mutation {
-  const { role, ...user } = member;
+  const { role, guest, ...user } = member;
   return (s) => ({
     ...s,
     memberships: s.memberships.some(
       (m) => m.projectId === projectId && m.user.id === user.id,
     )
       ? s.memberships
-      : [...s.memberships, { projectId, role, user }],
+      : [...s.memberships, { projectId, role, guest, user }],
   });
 }
 

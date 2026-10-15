@@ -24,13 +24,16 @@ export function AppSidebar({
   projects,
   views,
   newProject = <ProjectDialog />,
+  canManageWorkspace = false,
 }: {
-  user: { name: string; email: string; image: string | null };
+  user: { id: string; name: string; email: string; image: string | null };
   /** Whether "Continue with Google" is configured on this deployment. */
   googleEnabled: boolean;
+  canManageWorkspace?: boolean;
   projects: React.ReactNode;
   views: React.ReactNode;
-  /** The "+" next to the Projects heading; the loading shell passes a disabled one. */
+  /** The "+" next to the Projects heading; the loading shell passes a
+   * disabled one, and a guest's sidebar none (guests can't create projects). */
   newProject?: React.ReactNode;
 }) {
   return (
@@ -79,7 +82,11 @@ export function AppSidebar({
       </div>
 
       <div className="border-t p-2">
-        <NavUser user={user} googleEnabled={googleEnabled} />
+        <NavUser
+          user={user}
+          googleEnabled={googleEnabled}
+          canManageWorkspace={canManageWorkspace}
+        />
       </div>
     </aside>
   );
