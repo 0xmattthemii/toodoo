@@ -9,6 +9,7 @@ import {
   getWorkspaceAdminData,
   inviteToWorkspace,
   restoreWorkspaceMember,
+  transferWorkspaceOwnership,
   updateWorkspaceRole,
   updateWorkspaceSettings,
 } from "@/actions/workspace";
@@ -255,6 +256,33 @@ describe("managing people", () => {
     expect(
       await as(admin, () => updateWorkspaceRole(admin.id, "member")),
     ).toMatchObject({ error: expect.stringContaining("your own access") });
+  });
+
+  it("lets only the owner hand the workspace over, to a member or admin", async () => {
+    const owner = await createUser("Owner", { workspaceRole: "owner" });
+    const admin = await createUser("Admin", { workspaceRole: "admin" });
+    const guest = await createUser("Guest", { workspaceRole: "guest" });
+
+    expect(
+      await as(admin, () => transferWorkspaceOwnership(admin.id)),
+    ).toEqual({ error: "Only the owner can transfer the workspace" });
+    expect(
+      await as(owner, () => transferWorkspaceOwnership(guest.id)),
+    ).toEqual({ error: "Make them a member or an admin first" });
+
+    expect(
+      await as(owner, () => transferWorkspaceOwnership(admin.id)),
+    ).toEqual({ error: undefined });
+    expect(await workspaceRoleOf(admin)).toBe("owner");
+    expect(await workspaceRoleOf(owner)).toBe("admin");
+
+    // The new owner is now out of reach, the old one manageable.
+    expect(
+      await as(owner, () => updateWorkspaceRole(admin.id, "member")),
+    ).toEqual({ error: "The owner can't be changed" });
+    expect(
+      await as(admin, () => updateWorkspaceRole(owner.id, "member")),
+    ).toMatchObject({ error: undefined });
   });
 
   it("lets only admins change the sign-up setting", async () => {

@@ -365,6 +365,41 @@ export async function deactivateWorkspaceMember(userId: string) {
   return result;
 }
 
+/**
+ * Hands the workspace to someone else: they become its owner and the current
+ * owner an admin. Only the owner can do it, and only to an active member or
+ * admin — a guest is promoted first.
+ */
+export async function transferWorkspaceOwnership(userId: string) {
+  const { user: me } = await requireSession();
+
+  const result = await withWorkspaceLock(async (tx) => {
+    if ((await getWorkspaceRole(me.id, tx)) !== "owner") {
+      return { error: "Only the owner can transfer the workspace" };
+    }
+    if (userId === me.id) return { error: "You already own the workspace" };
+    const target = await getWorkspaceMember(userId, tx);
+    if (!target || target.deactivatedAt) {
+      return { error: "Not in the workspace" };
+    }
+    if (target.role === "guest") {
+      return { error: "Make them a member or an admin first" };
+    }
+    // One owner at a time (a unique index says so): step down, then hand over.
+    await tx
+      .update(workspaceMembers)
+      .set({ role: "admin" })
+      .where(eq(workspaceMembers.userId, me.id));
+    await tx
+      .update(workspaceMembers)
+      .set({ role: "owner" })
+      .where(eq(workspaceMembers.userId, userId));
+    return { error: undefined };
+  });
+  revalidatePath("/", "layout");
+  return result;
+}
+
 /** Gives a removed person their access back, in the role they had. Projects they left aren't rejoined. */
 export async function restoreWorkspaceMember(userId: string) {
   const me = await requireWorkspaceAdmin();
