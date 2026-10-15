@@ -6,7 +6,6 @@ import {
   MoreHorizontal,
   RotateCcw,
   Trash2,
-  UserPlus,
 } from "lucide-react";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -90,7 +89,7 @@ type Pending =
 type Result = { error?: string };
 
 /**
- * The workspace's people — members, pending invitations, removed accounts —
+ * The workspace's people (members, pending invitations, removed accounts)
  * and its sign-up setting, on one page, for its owner and admins. Inviting
  * and every confirmation open on top of it; dismissing one of those brings
  * this back as it was. The dialog keeps one size whatever it lists: the list
@@ -205,42 +204,16 @@ export function WorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(44rem,calc(100dvh-4rem))] flex-col gap-0 p-0 sm:max-w-2xl">
-        <DialogHeader className="gap-1.5 px-6 pt-6 pb-5">
+      <DialogContent className="flex max-h-[min(44rem,calc(100dvh-4rem))] flex-col gap-0 p-0 sm:max-w-2xl">
+        <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle>Workspace</DialogTitle>
-          <DialogDescription>
-            Everyone on this toodoo, and who can join it.
+          <DialogDescription className="sr-only">
+            The people in this workspace, its invitations, and whether anyone
+            can sign up.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mx-6 flex items-center justify-between gap-6 rounded-lg border px-4 py-3.5">
-          <div className="grid gap-1">
-            <Label htmlFor="signups-enabled">Allow sign-ups</Label>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {!data
-                ? " "
-                : data.settings.signupsEnabled
-                  ? "Anyone can create an account and joins as a member."
-                  : "Only people with an invitation — to the workspace or to a project — can create an account."}
-              {data && data.allowedDomains.length > 0
-                ? ` Limited to ${formatEmailDomains(data.allowedDomains)} addresses.`
-                : null}
-            </p>
-          </div>
-          <Switch
-            id="signups-enabled"
-            disabled={!data}
-            checked={data?.settings.signupsEnabled ?? false}
-            onCheckedChange={(checked) =>
-              void run(
-                updateWorkspaceSettings({ signupsEnabled: checked }),
-                "Could not save the setting",
-              )
-            }
-          />
-        </div>
-
-        <div className="flex items-center justify-between px-6 pt-6 pb-3">
+        <div className="flex items-center gap-4 px-6 pb-3">
           <h3 className="text-sm font-medium">
             People
             {data ? (
@@ -249,8 +222,34 @@ export function WorkspaceDialog({
               </span>
             ) : null}
           </h3>
-          <Button size="sm" disabled={!data} onClick={() => setInviteOpen(true)}>
-            <UserPlus />
+          {/* Off: only invited addresses can create an account. */}
+          <label
+            className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+            title={
+              data?.allowedDomains.length
+                ? `Limited to ${formatEmailDomains(data.allowedDomains)} addresses`
+                : undefined
+            }
+          >
+            <Switch
+              size="sm"
+              disabled={!data}
+              checked={data?.settings.signupsEnabled ?? false}
+              onCheckedChange={(checked) =>
+                void run(
+                  updateWorkspaceSettings({ signupsEnabled: checked }),
+                  "Could not save the setting",
+                )
+              }
+            />
+            Allow sign-ups
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!data}
+            onClick={() => setInviteOpen(true)}
+          >
             Invite
           </Button>
         </div>
@@ -348,7 +347,7 @@ export function WorkspaceDialog({
                     </span>
                   }
                   title={invitation.email}
-                  subtitle="Waiting for them to sign up and confirm their email"
+                  subtitle="Invitation sent"
                   role={
                     <RoleSelect value={invitation.role} disabled options={INVITABLE} />
                   }
@@ -398,14 +397,6 @@ export function WorkspaceDialog({
           )}
         </div>
 
-        <p className="border-t px-6 py-3.5 text-xs leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">Admins</span> manage
-          people and settings.{" "}
-          <span className="font-medium text-foreground">Members</span> create
-          projects and join any they&apos;re invited to.{" "}
-          <span className="font-medium text-foreground">Guests</span> see only
-          the projects they&apos;re invited to.
-        </p>
       </DialogContent>
 
       {/* Rendered inside this dialog's Root, so base-ui stacks them on it:
@@ -608,7 +599,7 @@ function InviteDialog({
         toast.success(
           "added" in result
             ? "Added to the workspace"
-            : "Invited — they'll join once they confirm their email",
+            : "Invited. They'll join once they confirm their email.",
         );
       }
     });
@@ -620,9 +611,7 @@ function InviteDialog({
         <DialogHeader className="gap-1.5">
           <DialogTitle>Invite to the workspace</DialogTitle>
           <DialogDescription>
-            They get an email to sign up with this address. To bring in someone
-            for a single project, invite them from that project instead: they
-            join as a guest.
+            They&apos;ll get an email to join.
           </DialogDescription>
         </DialogHeader>
         <form id="workspace-invite" onSubmit={onSubmit} className="grid gap-4">

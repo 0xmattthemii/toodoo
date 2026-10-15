@@ -103,7 +103,7 @@ export function MembersDialog({
       toast.success(
         "added" in result
           ? "Added to the project"
-          : "Invited — they'll join once they confirm their email",
+          : "Invited. They'll join once they confirm their email.",
       );
     });
   }

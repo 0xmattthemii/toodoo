@@ -56,7 +56,7 @@ export function NoWorkspaceAccess({
     });
     setSending(false);
     if (error) toast.error(error.message ?? "Could not send the email");
-    else toast.success("Sent — check your inbox");
+    else toast.success("Sent. Check your inbox.");
   }
 
   async function signOut() {
