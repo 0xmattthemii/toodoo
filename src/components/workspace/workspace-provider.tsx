@@ -20,6 +20,7 @@ import type {
   ProjectSummary,
   TaskWithMeta,
   ViewSummary,
+  WorkspaceRole,
 } from "@/lib/types";
 import type {
   Mutation,
@@ -48,6 +49,7 @@ export type MutationSpec<R extends ActionResult> = {
 
 type WorkspaceValue = {
   me: Person;
+  workspaceRole: WorkspaceRole;
   projects: ProjectSummary[];
   views: ViewSummary[];
   /** Tasks with `projectName` resolved from the current projects. */
@@ -208,10 +210,10 @@ export function WorkspaceProvider({
 
     const peopleById = new Map<string, Person>([[current.me.id, current.me]]);
     const membersByProject = new Map<string, MemberWithUser[]>();
-    for (const { projectId, role, user } of current.memberships) {
+    for (const { projectId, role, guest, user } of current.memberships) {
       peopleById.set(user.id, user);
       const list = membersByProject.get(projectId) ?? [];
-      list.push({ ...user, role });
+      list.push({ ...user, role, guest });
       membersByProject.set(projectId, list);
     }
     const people = [...peopleById.values()].sort((a, b) =>
@@ -234,6 +236,7 @@ export function WorkspaceProvider({
 
     return {
       me: current.me,
+      workspaceRole: current.workspaceRole,
       projects: current.projects,
       views: current.views,
       tasks,

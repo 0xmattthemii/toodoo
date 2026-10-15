@@ -12,6 +12,7 @@ import {
 } from "@/lib/data";
 import { isValidId } from "@/lib/ids";
 import { requireSession } from "@/lib/session";
+import { getWorkspaceRole } from "@/lib/workspace-access";
 
 export async function createProject(input: {
   id?: string;
@@ -21,6 +22,9 @@ export async function createProject(input: {
   color?: string | null;
 }) {
   const session = await requireSession();
+  if ((await getWorkspaceRole(session.user.id)) === "guest") {
+    return { error: "Guests can't create projects" };
+  }
   const name = input.name.trim();
   if (!name) return { error: "Project name is required" };
   if (input.id !== undefined && !isValidId(input.id)) {

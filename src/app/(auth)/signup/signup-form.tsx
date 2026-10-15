@@ -29,9 +29,12 @@ import {
 export function SignupForm({
   googleEnabled,
   allowedDomains,
+  inviteOnly,
 }: {
   googleEnabled: boolean;
   allowedDomains: string[];
+  /** Sign-ups are closed: only invited addresses can create an account. */
+  inviteOnly: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -75,9 +78,11 @@ export function SignupForm({
       <CardHeader className="text-center">
         <CardTitle className="text-xl">Create your account</CardTitle>
         <CardDescription>
-          {allowedDomains.length
-            ? `Sign-ups are limited to ${formatEmailDomains(allowedDomains)} emails`
-            : "Start organizing your work"}
+          {inviteOnly
+            ? "This workspace is invite-only. Sign up with the email address your invitation was sent to."
+            : allowedDomains.length
+              ? `Sign-ups are limited to ${formatEmailDomains(allowedDomains)} emails`
+              : "Start organizing your work"}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

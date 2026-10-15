@@ -10,6 +10,32 @@ export function isRole(value: unknown): value is Role {
   return (ROLES as readonly unknown[]).includes(value);
 }
 
+/**
+ * A role in the workspace — the deployment as a whole — as opposed to `Role`,
+ * a role in one project. Guests are outsiders invited to a project: they see
+ * only the projects they are in and can't create any.
+ */
+export const WORKSPACE_ROLES = ["owner", "admin", "member", "guest"] as const;
+
+export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
+
+/** The roles an admin can hand out; there is only ever one owner. */
+export const ASSIGNABLE_WORKSPACE_ROLES = ["admin", "member", "guest"] as const;
+
+export type AssignableWorkspaceRole =
+  (typeof ASSIGNABLE_WORKSPACE_ROLES)[number];
+
+export function isAssignableWorkspaceRole(
+  value: unknown,
+): value is AssignableWorkspaceRole {
+  return (ASSIGNABLE_WORKSPACE_ROLES as readonly unknown[]).includes(value);
+}
+
+/** Owners and admins run the workspace: people, invitations, settings. */
+export function managesWorkspace(role: WorkspaceRole | null | undefined) {
+  return role === "owner" || role === "admin";
+}
+
 export type Person = {
   id: string;
   name: string;
@@ -17,7 +43,11 @@ export type Person = {
   image: string | null;
 };
 
-export type MemberWithUser = Person & { role: Role };
+export type MemberWithUser = Person & {
+  role: Role;
+  /** A workspace guest: in this project from outside the workspace. */
+  guest?: boolean;
+};
 
 export type ProjectSummary = {
   id: string;

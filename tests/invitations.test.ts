@@ -22,20 +22,23 @@ describe("invitations", () => {
     const { admin, projectId } = await projectWithAdmin();
     const email = "newcomer@test.dev";
     expect(
-      await as(admin, () => inviteToProject(projectId, email, "admin")),
+      await as(admin, () => inviteToProject(projectId, email, "member")),
     ).toMatchObject({
       invited: true,
     });
 
     // Someone registers the address without access to its inbox.
-    const claimant = await createUser("Claimant", { verified: false });
+    const claimant = await createUser("Claimant", {
+      verified: false,
+      workspaceRole: null,
+    });
     await db.update(user).set({ email }).where(eq(user.id, claimant.id));
     await acceptPendingInvitations(claimant.id);
     expect(await roleIn(projectId, claimant)).toBeNull();
 
     await verifyEmail(claimant);
     await acceptPendingInvitations(claimant.id);
-    expect(await roleIn(projectId, claimant)).toBe("admin");
+    expect(await roleIn(projectId, claimant)).toBe("member");
   });
 
   it("invite an existing unverified account rather than adding it", async () => {

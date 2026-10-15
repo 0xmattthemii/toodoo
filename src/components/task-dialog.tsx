@@ -66,7 +66,8 @@ export function TaskDialog({
   projects: ProjectSummary[];
   defaultProjectId?: string;
 }) {
-  const { me, mutate, tasks, people, membersOf } = useWorkspace();
+  const { me, workspaceRole, mutate, tasks, people, membersOf } =
+    useWorkspace();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
@@ -107,7 +108,10 @@ export function TaskDialog({
       value: project.id,
       label: project.name,
     })),
-    { value: NEW_PROJECT, label: "New project" },
+    // Guests can't create projects.
+    ...(workspaceRole === "guest"
+      ? []
+      : [{ value: NEW_PROJECT, label: "New project" }]),
   ];
 
   // Only people who can see the task may be assigned it (the server holds

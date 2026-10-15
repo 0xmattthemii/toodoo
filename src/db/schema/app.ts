@@ -7,6 +7,7 @@ import {
   index,
   jsonb,
   pgTable,
+  smallint,
   primaryKey,
   text,
   timestamp,
@@ -15,6 +16,90 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
+
+/**
+ * Who belongs to this deployment's workspace, and as what. One workspace per
+ * deployment: the instance *is* the workspace. An account without an active
+ * row here can sign in but sees nothing (see lib/workspace-access.ts) —
+ * that is the state of someone removed, or of an invitee whose address isn't
+ * verified yet.
+ */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "admin", "member", "guest"] })
+      .notNull()
+      .default("member"),
+    /** Set when an admin removes them: they lose access but their tasks
+     * stay, and an admin can bring them back. */
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "workspace_members_role_check",
+      sql`${table.role} in ('owner', 'admin', 'member', 'guest')`,
+    ),
+    // There is exactly one owner; this makes "at most" the database's job.
+    uniqueIndex("workspace_members_single_owner_idx")
+      .on(table.role)
+      .where(sql`${table.role} = 'owner'`),
+  ],
+);
+
+/** Invitations to join the workspace itself, as an admin or a member. */
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    role: text("role", { enum: ["admin", "member"] })
+      .notNull()
+      .default("member"),
+    invitedBy: text("invited_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pending", "accepted"] })
+      .notNull()
+      .default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // One open invitation per address; accepted ones are history.
+    uniqueIndex("workspace_invitations_pending_email_idx")
+      .on(table.email)
+      .where(sql`${table.status} = 'pending'`),
+    check(
+      "workspace_invitations_role_check",
+      sql`${table.role} in ('admin', 'member')`,
+    ),
+    check(
+      "workspace_invitations_status_check",
+      sql`${table.status} in ('pending', 'accepted')`,
+    ),
+  ],
+);
+
+/** The workspace's settings: a single row, id 1. */
+export const workspaceSettings = pgTable(
+  "workspace_settings",
+  {
+    id: smallint("id").primaryKey().default(1),
+    /** Off: only people with an invitation can create an account. */
+    signupsEnabled: boolean("signups_enabled").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("workspace_settings_single_row", sql`${table.id} = 1`)],
+);
 
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
