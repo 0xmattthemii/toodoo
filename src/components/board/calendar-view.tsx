@@ -99,7 +99,8 @@ function isTypingTarget(target: EventTarget | null) {
   return (
     target instanceof Element &&
     target.closest(
-      'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"]',
+      // Tabs use the arrow keys themselves (the Month/Week switch).
+      'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"], [role="tablist"]',
     ) !== null
   );
 }
@@ -131,7 +132,16 @@ export function CalendarView({
   const { projectsById } = useWorkspace();
   const { activeTask, activeGroupKey } = useTaskDnd();
 
-  const today = useMemo(() => startOfToday(), []);
+  // Kept current past midnight: an app left open (the desktop one often is)
+  // would otherwise go on marking yesterday as today.
+  const [today, setToday] = useState(startOfToday);
+  useEffect(() => {
+    const tick = window.setInterval(() => {
+      const now = startOfToday();
+      setToday((current) => (isSameDay(current, now) ? current : now));
+    }, 60_000);
+    return () => window.clearInterval(tick);
+  }, []);
   // Each board mounts its own calendar; these carry over from the last one.
   const [span, setSpanState] = useState<Span>(() =>
     cachedPref(SPAN_KEY) === "week" ? "week" : "month",
@@ -356,7 +366,8 @@ export function CalendarView({
               aria-pressed={panelOpen}
               title={panelOpen ? "Hide “No date”" : "Show “No date”"}
               onClick={() => setPanelOpen(!panelOpen)}
-              className="relative"
+              // The panel only fits from lg up; below, it's never shown.
+              className="relative hidden lg:inline-flex"
             >
               {panelOpen ? <PanelRightClose /> : <PanelRightOpen />}
               {!panelOpen && unscheduled.length > 0 ? (
@@ -908,12 +919,19 @@ function TaskChip({
     listeners,
     setNodeRef,
     setActivatorNodeRef,
-    isDragging,
+    isDragging: dragged,
   } = useDraggable({
-    id: `calendar-${variant}::${task.id}`,
+    // The copy under the pointer registers too (dnd-kit does, disabled or
+    // not), so it needs an id of its own: sharing the real chip's would
+    // replace that chip's registration and, when the copy goes away, leave
+    // the chip impossible to pick up again.
+    id: overlay
+      ? `calendar-overlay::${task.id}`
+      : `calendar-${variant}::${task.id}`,
     data: { kind: "task", task, groupKey: `calendar-${variant}` },
     disabled: overlay,
   });
+  const isDragging = !overlay && dragged;
 
   const [localDone, setLocalDone] = useState(false);
   const beat = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -993,6 +1011,9 @@ function TaskChip({
     ...(overlay ? {} : listeners),
     onClick: () => onOpen(task),
     onKeyDown: (event: React.KeyboardEvent) => {
+      // Only the chip itself opens the task; Enter or Space on its circle
+      // is the circle's own (it checks the task off).
+      if (event.target !== event.currentTarget) return;
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         onOpen(task);

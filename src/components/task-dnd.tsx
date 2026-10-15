@@ -135,7 +135,9 @@ export function useTaskDnd() {
  * rows — the sidebar's projects and the board's tasks — and the list view's
  * group tails. They are small (or, for a tail, right below rows), and the
  * drag overlay overlaps plenty of them long before the pointer gets there,
- * which would drop a task somewhere nobody pointed at.
+ * which would drop a task somewhere nobody pointed at. Calendar days are
+ * skipped too: they tile the grid edge to edge, so a release beside them —
+ * on the weekday header, the week numbers — means no day at all.
  */
 const collisionDetection: CollisionDetection = (args) => {
   const withPointer = pointerWithin(args);
@@ -147,7 +149,8 @@ const collisionDetection: CollisionDetection = (args) => {
       return (
         sidebarProjectFromDropId(id) === null &&
         taskFromDropId(id) === null &&
-        taskGroupFromTailDropId(id) === null
+        taskGroupFromTailDropId(id) === null &&
+        calendarDayFromDropId(id) === null
       );
     }),
   });

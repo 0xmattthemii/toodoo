@@ -154,7 +154,13 @@ export async function setTaskDeadline(taskId: string, deadline: string | null) {
   const task = await canAccessTask(taskId, session.user.id);
   if (!task) return { error: "Task not found" };
 
-  const day = deadline === null ? null : parseDeadline(deadline);
+  // The type is only a promise; a request can carry anything.
+  const day =
+    deadline === null
+      ? null
+      : typeof deadline === "string"
+        ? parseDeadline(deadline)
+        : undefined;
   if (day === undefined) return { error: "Invalid deadline" };
 
   await db
