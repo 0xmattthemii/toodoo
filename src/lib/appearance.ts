@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type CSSProperties } from "react";
 import {
   Book,
   Briefcase,
@@ -68,4 +68,18 @@ export function AppearanceIcon({
     className,
     style: color ? { color } : undefined,
   });
+}
+
+/**
+ * A wash of a project's color — or, without one, of neutral grey — layered
+ * over the element's own background color. The element supplies that base
+ * (`bg-background`, and `hover:bg-task-hover` where it hovers), so a tinted
+ * task hovers exactly like a plain one, and looks the same on a plain cell, a
+ * shaded weekend or a muted panel, in either theme.
+ */
+export function tintStyle(color: string | null): CSSProperties {
+  const wash = color
+    ? `${color}24`
+    : "color-mix(in oklab, var(--color-foreground) 5%, transparent)";
+  return { backgroundImage: `linear-gradient(${wash}, ${wash})` };
 }

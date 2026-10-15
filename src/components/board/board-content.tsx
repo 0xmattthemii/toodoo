@@ -6,34 +6,38 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/core";
-import { format } from "date-fns";
-import { CalendarClock, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { moveTaskToProject, reorderTasks, setTaskDone } from "@/actions/tasks";
-import { useBoard } from "@/components/board/board-context";
-import { dueBucket, groupTasks, type Group } from "@/components/board/grouping";
-import { DragHandle, type DragHandleProps } from "@/components/drag-handle";
 import {
+  moveTaskToProject,
+  reorderTasks,
+  setTaskDeadline,
+  setTaskDone,
+} from "@/actions/tasks";
+import { useBoard } from "@/components/board/board-context";
+import { CalendarView } from "@/components/board/calendar-view";
+import { dueBucket, groupTasks, type Group } from "@/components/board/grouping";
+import { TaskCard, TaskRow } from "@/components/board/task-items";
+import type { DragHandleProps } from "@/components/drag-handle";
+import {
+  calendarDayFromDropId,
   sidebarProjectFromDropId,
   taskDropId,
   taskFromDropId,
   taskGroupFromTailDropId,
   taskGroupTailDropId,
+  UNSCHEDULED_DROP_ID,
   useTaskDnd,
 } from "@/components/task-dnd";
-import { UserAvatar } from "@/components/user-avatar";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   moveItem,
   positionSlots,
   previewShifts,
   rowPitch,
 } from "@/lib/ordering";
-import { deadlineDate } from "@/lib/deadline";
 import { cn } from "@/lib/utils";
 import { patchTask, setTaskPositions } from "@/lib/workspace";
 import type {
@@ -112,7 +116,7 @@ export function BoardContent({
   const board = useBoard();
   const { config, currentUserId, scopedProjectId, setSortBy, showDone } =
     board;
-  const { mutate, membersOf, tasks: allTasks } = useWorkspace();
+  const { mutate, membersOf, projectsById, tasks: allTasks } = useWorkspace();
 
   const projectOptions = dialogProjects ?? projects;
 
@@ -132,6 +136,11 @@ export function BoardContent({
         .sort((a, b) => compareTasks(a, b, config.sortBy)),
     [tasks, config.filters, config.sortBy, currentUserId, showDone],
   );
+
+  const { setVisibleCount } = board;
+  useEffect(() => {
+    setVisibleCount(filteredTasks.length);
+  }, [setVisibleCount, filteredTasks.length]);
 
   const groups = useMemo(
     () =>
@@ -182,6 +191,17 @@ export function BoardContent({
       });
     },
     [projectOptions, mutate, membersOf, allTasks],
+  );
+
+  const changeDeadline = useCallback(
+    (taskId: string, deadline: string | null) => {
+      void mutate({
+        optimistic: patchTask(taskId, { deadline }),
+        action: () => setTaskDeadline(taskId, deadline),
+        failure: "Could not reschedule the task",
+      });
+    },
+    [mutate],
   );
 
   /**
@@ -247,6 +267,15 @@ export function BoardContent({
         return;
       }
 
+      // On the calendar a day sets the deadline, and the "No date" panel
+      // clears it.
+      const day =
+        dropId === UNSCHEDULED_DROP_ID ? null : calendarDayFromDropId(dropId);
+      if (day !== null || dropId === UNSCHEDULED_DROP_ID) {
+        if (day !== task.deadline) changeDeadline(task.id, day);
+        return;
+      }
+
       // Landing on another task reorders within a group, and outside it means
       // the same as landing on that task's column. The space after a group's
       // last task (list view) counts as landing on that last task.
@@ -268,7 +297,7 @@ export function BoardContent({
         if (projectId !== task.projectId) moveProject(task.id, projectId);
       }
     },
-    [config.groupBy, moveProject, reorder, tailTarget],
+    [config.groupBy, moveProject, reorder, tailTarget, changeDeadline],
   );
 
   useEffect(() => {
@@ -277,6 +306,13 @@ export function BoardContent({
   }, [registerDropHandler, onDrop]);
 
   const showProject = !scopedProjectId && config.groupBy !== "project";
+  const colorOf = (task: TaskWithMeta) =>
+    (task.projectId && projectsById.get(task.projectId)?.color) || null;
+  // Grouped by project, each group's heading carries its project's color.
+  const dotOf = (group: Group) =>
+    config.groupBy === "project" && group.key !== "none"
+      ? (projectsById.get(group.key)?.color ?? null)
+      : undefined;
 
   // The group under the pointer, whether the pointer is over the column itself
   // or over one of its tasks.
@@ -287,6 +323,21 @@ export function BoardContent({
       ? (taskGroupFromTailDropId(overId) ?? overId)
       : null;
 
+  if (config.mode === "calendar") {
+    return (
+      <CalendarView
+        tasks={filteredTasks}
+        showDone={showDone}
+        onSetDone={changeDone}
+        onOpen={openEdit}
+        onCreate={(deadline) =>
+          board.openCreate(deadline ? { deadline } : undefined)
+        }
+        neutral={Boolean(scopedProjectId)}
+      />
+    );
+  }
+
   if (filteredTasks.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -296,7 +347,7 @@ export function BoardContent({
             : "No tasks yet. Create your first one."}
         </p>
         {tasks.length === 0 ? (
-          <Button variant="outline" onClick={board.openCreate}>
+          <Button variant="outline" onClick={() => board.openCreate()}>
             <Plus />
             New task
           </Button>
@@ -327,6 +378,7 @@ export function BoardContent({
             <TaskRow
               task={activeTask}
               showProject={showProject}
+              projectColor={colorOf(activeTask)}
               onToggleDone={noop}
               className="shadow-lg ring-1 ring-border"
             />
@@ -334,6 +386,7 @@ export function BoardContent({
             <TaskCard
               task={activeTask}
               showProject={showProject}
+              projectColor={colorOf(activeTask)}
               onToggleDone={noop}
               className="shadow-lg ring-1 ring-border"
             />
@@ -357,6 +410,7 @@ export function BoardContent({
           >
             {config.groupBy !== "none" ? (
               <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
+                <GroupDot color={dotOf(group)} />
                 {group.label}
                 <span className="text-xs text-muted-foreground">
                   {group.tasks.length}
@@ -377,6 +431,7 @@ export function BoardContent({
                   <TaskRow
                     task={task}
                     showProject={showProject}
+                    projectColor={colorOf(task)}
                     onToggleDone={toggleDone}
                     handle={handle}
                   />
@@ -398,6 +453,7 @@ export function BoardContent({
           <KanbanColumn
             key={group.key}
             group={group}
+            dot={dotOf(group)}
             droppable={canDropOnColumn}
             dragging={activeTask !== null}
             highlight={
@@ -413,6 +469,7 @@ export function BoardContent({
                 <TaskCard
                   task={task}
                   showProject={showProject}
+                  projectColor={colorOf(task)}
                   onToggleDone={toggleDone}
                   handle={handle}
                 />
@@ -530,14 +587,32 @@ function GroupTail({ groupKey, grow }: { groupKey: string; grow: boolean }) {
   );
 }
 
+/**
+ * The colored dot before a project group's name. `undefined` draws nothing
+ * (the board isn't grouped by project, or this is "No project"); `null` is a
+ * project without a color.
+ */
+function GroupDot({ color }: { color: string | null | undefined }) {
+  if (color === undefined) return null;
+  return (
+    <span
+      aria-hidden
+      className="size-2 shrink-0 rounded-full bg-muted-foreground/40"
+      style={color ? { backgroundColor: color } : undefined}
+    />
+  );
+}
+
 function KanbanColumn({
   group,
+  dot,
   droppable,
   dragging,
   highlight,
   children,
 }: {
   group: Group;
+  dot: string | null | undefined;
   droppable: boolean;
   dragging: boolean;
   /** True while a drop here would move the task into this column. */
@@ -553,12 +628,15 @@ function KanbanColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex w-72 shrink-0 flex-col rounded-xl bg-muted/50 transition-all duration-150",
+        // Columns share the width, never narrower than a readable card nor so
+        // wide that a lone column turns into a list.
+        "flex max-w-[34rem] min-w-88 flex-1 basis-88 flex-col rounded-xl bg-muted/50 transition-all duration-150",
         dragging && droppable && "ring-1 ring-border",
         droppable && highlight && "bg-accent ring-2 ring-ring/40",
       )}
     >
       <div className="flex items-center gap-2 px-3 py-2.5">
+        <GroupDot color={dot} />
         <span className="text-sm font-medium">{group.label}</span>
         <span className="text-xs text-muted-foreground">
           {group.tasks.length}
@@ -702,228 +780,6 @@ function TaskLeaveWrapper({
         {/* eslint-disable-next-line react-hooks/refs -- toggleDone only touches refs when invoked as an event handler, not during render */}
         {children(localDone ? { ...task, done: true } : task, toggleDone)}
       </div>
-    </div>
-  );
-}
-
-/**
- * The checkbox and the space around it. Clicking anywhere in that zone toggles
- * the task, so the target is bigger than the 16px box; the checkbox itself
- * still handles its own click (and keyboard), so only clicks on the padding
- * are turned into toggles here.
- */
-function DoneCheckbox({
-  task,
-  onToggleDone,
-  className,
-}: {
-  task: TaskWithMeta;
-  onToggleDone: (done: boolean) => void;
-  className?: string;
-}) {
-  return (
-    <span
-      onClick={(event) => {
-        event.stopPropagation();
-        if (event.target === event.currentTarget) onToggleDone(!task.done);
-      }}
-      className={cn("flex cursor-pointer items-center", className)}
-    >
-      <Checkbox
-        checked={task.done}
-        onCheckedChange={(checked) => onToggleDone(checked === true)}
-        className={cn(
-          // The stock checkbox pads its hit area with an invisible `::after`
-          // that reaches 12px past the box on each side, which would swallow
-          // the grip's grab zone. This wrapper is the click zone instead.
-          "rounded-full transition-transform after:hidden active:scale-90",
-          task.done && "animate-in zoom-in-75 duration-300",
-        )}
-        aria-label={`Mark "${task.title}" as ${task.done ? "not done" : "done"}`}
-      />
-    </span>
-  );
-}
-
-function DeadlineChip({
-  task,
-  placeholder,
-}: {
-  task: TaskWithMeta;
-  /** Render "No date" instead of nothing, so the slot never collapses. */
-  placeholder?: boolean;
-}) {
-  if (!task.deadline) {
-    if (!placeholder) return null;
-    return (
-      <span className="flex items-center gap-1 text-xs whitespace-nowrap text-muted-foreground/50">
-        <CalendarClock className="size-3.5" />
-        No date
-      </span>
-    );
-  }
-  const overdue = dueBucket(task) === "overdue" && !task.done;
-  return (
-    <span
-      className={cn(
-        "flex items-center gap-1 text-xs whitespace-nowrap",
-        overdue ? "font-medium text-destructive" : "text-muted-foreground",
-      )}
-    >
-      <CalendarClock className="size-3.5" />
-      {format(deadlineDate(task.deadline), "MMM d")}
-    </span>
-  );
-}
-
-function AvatarStack({ people }: { people: Person[] }) {
-  return (
-    <span className="flex w-14 justify-end -space-x-1.5">
-      {people.slice(0, 2).map((person) => (
-        <UserAvatar
-          key={person.id}
-          person={person}
-          className="size-5 ring-2 ring-background"
-        />
-      ))}
-      {people.length > 2 ? (
-        <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground ring-2 ring-background">
-          +{people.length - 2}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-function TaskRow({
-  task,
-  showProject,
-  className,
-  onToggleDone,
-  handle,
-}: {
-  task: TaskWithMeta;
-  showProject: boolean;
-  className?: string;
-  onToggleDone: (done: boolean) => void;
-  /** Omitted on the drag overlay, which shows a static grip. */
-  handle?: DragHandleProps;
-}) {
-  return (
-    <div
-      className={cn(
-        "group/row flex w-full items-center gap-3 rounded-lg border bg-background py-3 pr-4 pl-1.5 text-left hover:bg-muted/50",
-        className,
-      )}
-    >
-      {/* The grip's grab zone runs from the row's left edge to halfway
-          between its visible dots and the checkbox; the checkbox's click zone
-          takes over from there. The grip icon's dots are ~6px wide inside a
-          16px button, so its own layout edge is that halfway point, and
-          negative margins pull each zone across the padding and gap without
-          moving anything. */}
-      <DragHandle
-        handle={handle}
-        label={`Drag "${task.title}"`}
-        className={cn("-ml-1.5 w-5.5 pl-1.5", !handle && "opacity-100")}
-      />
-      <DoneCheckbox
-        task={task}
-        onToggleDone={onToggleDone}
-        className="-my-3 -ml-3 -mr-3 self-stretch py-3 pr-3 pl-1.5"
-      />
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-sm",
-          task.done && "text-muted-foreground line-through",
-        )}
-      >
-        {task.title}
-      </span>
-      {showProject ? (
-        <span className="flex w-36 justify-end">
-          {task.projectName ? (
-            <Badge variant="outline" className="max-w-36">
-              <span className="truncate">{task.projectName}</span>
-            </Badge>
-          ) : null}
-        </span>
-      ) : null}
-      <span className="flex w-16 items-center justify-end">
-        <DeadlineChip task={task} />
-      </span>
-      <AvatarStack people={task.assignees} />
-    </div>
-  );
-}
-
-/**
- * Kanban card. Every slot renders whether or not the task fills it — project
- * top right, date bottom left, assignees bottom right — so cards in a column
- * line up identically whatever data they carry.
- */
-function TaskCard({
-  task,
-  showProject,
-  className,
-  onToggleDone,
-  handle,
-}: {
-  task: TaskWithMeta;
-  showProject: boolean;
-  className?: string;
-  onToggleDone: (done: boolean) => void;
-  /** Omitted on the drag overlay, which shows a static grip. */
-  handle?: DragHandleProps;
-}) {
-  return (
-    <div
-      className={cn(
-        "group/row flex items-start gap-2.5 rounded-lg border bg-background py-3.5 pr-4 pl-1.5 shadow-xs select-none",
-        className,
-      )}
-    >
-      {/* Same grab/click zone split as in `TaskRow`. */}
-      <DragHandle
-        handle={handle}
-        label={`Drag "${task.title}"`}
-        className={cn("-my-0.5 -ml-1.5 w-5.5 pl-1.5", !handle && "opacity-100")}
-      />
-      {/* Stretches the click zone down the card's left edge and across the
-          gaps on both sides. */}
-      <DoneCheckbox
-        task={task}
-        onToggleDone={onToggleDone}
-        className="-my-3.5 -ml-2.5 -mr-2.5 items-start self-stretch py-3.5 pr-2.5 pl-1.5 [&>*]:mt-0.5"
-      />
-      <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span className="flex items-center gap-2">
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-sm font-medium",
-              task.done && "text-muted-foreground line-through",
-            )}
-          >
-            {task.title}
-          </span>
-          {showProject ? (
-            <Badge
-              variant="outline"
-              className={cn("max-w-28", !task.projectName && "invisible")}
-            >
-              <span className="truncate">{task.projectName ?? "—"}</span>
-            </Badge>
-          ) : null}
-        </span>
-        {/* Fixed height: an avatar is taller than the date's text line, and
-            the card must not grow when someone is assigned. */}
-        <span className="flex h-5 items-center gap-2">
-          <DeadlineChip task={task} placeholder />
-          <span className="ml-auto">
-            <AvatarStack people={task.assignees} />
-          </span>
-        </span>
-      </span>
     </div>
   );
 }

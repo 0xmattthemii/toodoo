@@ -27,6 +27,9 @@ import type { TaskWithMeta } from "@/lib/types";
 const SIDEBAR_PROJECT_PREFIX = "sidebar-project:";
 const TASK_PREFIX = "task:";
 const TAIL_PREFIX = "task-tail:";
+const DAY_PREFIX = "calendar-day:";
+/** Droppable id for the calendar's list of tasks without a deadline. */
+export const UNSCHEDULED_DROP_ID = "calendar-unscheduled";
 
 /** Droppable id for a project row in the sidebar. */
 export function sidebarProjectDropId(projectId: string) {
@@ -81,6 +84,16 @@ export function taskGroupFromTailDropId(dropId: string) {
     : null;
 }
 
+/** Droppable id for a day on the calendar, `YYYY-MM-DD`. */
+export function calendarDayDropId(day: string) {
+  return `${DAY_PREFIX}${day}`;
+}
+
+/** The day a drop id refers to, or null if it isn't a calendar day. */
+export function calendarDayFromDropId(dropId: string) {
+  return dropId.startsWith(DAY_PREFIX) ? dropId.slice(DAY_PREFIX.length) : null;
+}
+
 /** Called on every task drop, with a null id when it landed nowhere. */
 type TaskDropHandler = (
   dropId: string | null,
@@ -122,7 +135,9 @@ export function useTaskDnd() {
  * rows — the sidebar's projects and the board's tasks — and the list view's
  * group tails. They are small (or, for a tail, right below rows), and the
  * drag overlay overlaps plenty of them long before the pointer gets there,
- * which would drop a task somewhere nobody pointed at.
+ * which would drop a task somewhere nobody pointed at. Calendar days are
+ * skipped too: they tile the grid edge to edge, so a release beside them —
+ * on the weekday header, the week numbers — means no day at all.
  */
 const collisionDetection: CollisionDetection = (args) => {
   const withPointer = pointerWithin(args);
@@ -134,7 +149,8 @@ const collisionDetection: CollisionDetection = (args) => {
       return (
         sidebarProjectFromDropId(id) === null &&
         taskFromDropId(id) === null &&
-        taskGroupFromTailDropId(id) === null
+        taskGroupFromTailDropId(id) === null &&
+        calendarDayFromDropId(id) === null
       );
     }),
   });

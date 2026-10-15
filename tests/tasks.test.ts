@@ -7,6 +7,7 @@ import {
   deleteTask,
   moveTaskToProject,
   reorderTasks,
+  setTaskDeadline,
   setTaskDone,
   updateTask,
 } from "@/actions/tasks";
@@ -41,6 +42,9 @@ async function visibleIds(who: TestUser) {
 async function expectLockedOut(who: TestUser, taskId: string) {
   expect(await canAccessTask(taskId, who.id)).toBeNull();
   expect(await as(who, () => setTaskDone(taskId, true))).toEqual(notFound);
+  expect(
+    await as(who, () => setTaskDeadline(taskId, "2026-09-24")),
+  ).toEqual(notFound);
   expect(
     await as(who, () => updateTask(taskId, { title: "Mine now" })),
   ).toEqual(notFound);
@@ -352,6 +356,24 @@ describe("deadlines", () => {
     });
     expect(task.deadline).toBe("2026-09-15");
     await updateTaskFor(me.id, task.id, { deadline: null });
+    expect(await deadlineOf(task.id)).toBeNull();
+  });
+
+  it("move to another day, or clear, on their own (the calendar's drag)", async () => {
+    const me = await createUser("Me");
+    const task = await createTaskFor(me.id, {
+      title: "x",
+      deadline: "2026-09-24",
+    });
+    expect(await as(me, () => setTaskDeadline(task.id, "2026-10-02"))).toEqual(
+      { error: undefined },
+    );
+    expect(await deadlineOf(task.id)).toBe("2026-10-02");
+    expect(await as(me, () => setTaskDeadline(task.id, "2026-02-30"))).toEqual(
+      { error: "Invalid deadline" },
+    );
+    expect(await deadlineOf(task.id)).toBe("2026-10-02");
+    await as(me, () => setTaskDeadline(task.id, null));
     expect(await deadlineOf(task.id)).toBeNull();
   });
 

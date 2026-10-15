@@ -59,12 +59,15 @@ export function TaskDialog({
   task,
   projects,
   defaultProjectId,
+  defaultDeadline,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   task: TaskWithMeta | null;
   projects: ProjectSummary[];
   defaultProjectId?: string;
+  /** `YYYY-MM-DD` a new task starts on, e.g. the calendar day it was added to. */
+  defaultDeadline?: string;
 }) {
   const { me, workspaceRole, mutate, tasks, people, membersOf } =
     useWorkspace();
@@ -94,7 +97,8 @@ export function TaskDialog({
       setProjectId(
         task ? (task.projectId ?? NO_PROJECT) : (defaultProjectId ?? NO_PROJECT),
       );
-      setDeadline(task?.deadline ? deadlineDate(task.deadline) : undefined);
+      const initialDeadline = task ? task.deadline : defaultDeadline;
+      setDeadline(initialDeadline ? deadlineDate(initialDeadline) : undefined);
       setDeadlineOpen(false);
       setAssigneeIds(task?.assignees.map((person) => person.id) ?? []);
       setPane("task");

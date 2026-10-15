@@ -121,6 +121,13 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* The hover state of a task — a list row, a kanban card, a calendar item.
+   Opaque, so it reads the same on the page, on a muted kanban column or on a
+   shaded calendar day. */
+@utility bg-task-hover {
+  background-color: color-mix(in oklab, var(--color-muted) 50%, var(--color-background));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
