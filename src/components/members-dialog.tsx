@@ -68,6 +68,7 @@ export function MembersDialog({
       Number(b.role === "admin") - Number(a.role === "admin") ||
       a.name.localeCompare(b.name),
   );
+  const adminCount = members.filter((member) => member.role === "admin").length;
   const invitations = isAdmin ? invitationsOf(projectId) : [];
   const [inviteOpen, setInviteOpen] = useState(false);
   // What the confirmation is about, kept after it closes so its copy doesn't
@@ -171,6 +172,15 @@ export function MembersDialog({
       >
         {members.map((member) => {
           const self = member.id === currentUserId;
+          // The rules the server holds to, shown before anyone tries: a
+          // project keeps at least one admin and at least one person.
+          const soleAdmin = member.role === "admin" && adminCount <= 1;
+          const cannotLeave =
+            members.length <= 1
+              ? "You're the only one here. Delete the project instead."
+              : soleAdmin
+                ? "Make someone else an admin first."
+                : null;
           return (
             <AccessRow
               key={member.id}
@@ -182,7 +192,7 @@ export function MembersDialog({
                   value={member.role}
                   labels={ROLE_LABELS}
                   options={ROLES}
-                  disabled={!isAdmin}
+                  disabled={!isAdmin || soleAdmin}
                   // Guests never administer a project.
                   unavailable={member.guest ? ["admin"] : []}
                   onChange={(role) => onRoleChange(member.id, role)}
@@ -193,6 +203,7 @@ export function MembersDialog({
                   <AccessRowMenu label={`Actions for ${member.name}`}>
                     <DropdownMenuItem
                       variant="destructive"
+                      disabled={cannotLeave !== null}
                       onClick={() =>
                         ask({
                           kind: "member",
@@ -205,6 +216,11 @@ export function MembersDialog({
                       {self ? <LogOut /> : <Trash2 />}
                       {self ? "Leave project" : "Remove"}
                     </DropdownMenuItem>
+                    {cannotLeave ? (
+                      <p className="max-w-56 px-1.5 pt-0.5 pb-1 text-xs text-muted-foreground">
+                        {cannotLeave}
+                      </p>
+                    ) : null}
                   </AccessRowMenu>
                 ) : null
               }

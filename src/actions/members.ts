@@ -213,6 +213,14 @@ export async function revokeInvitation(
   return { error: undefined };
 }
 
+async function countMembers(tx: Executor, projectId: string) {
+  const members = await tx
+    .select({ userId: projectMembers.userId })
+    .from(projectMembers)
+    .where(eq(projectMembers.projectId, projectId));
+  return members.length;
+}
+
 async function countAdmins(tx: Executor, projectId: string) {
   const admins = await tx
     .select({ userId: projectMembers.userId })
@@ -282,6 +290,12 @@ export async function removeMember(projectId: string, userId: string) {
     );
     const target = await getMembership(projectId, userId, tx);
     if (!target) return { error: "Not a member" };
+    // A project nobody is in can't be seen, reached or deleted by anyone.
+    if ((await countMembers(tx, projectId)) <= 1) {
+      return {
+        error: "You're the last person in this project. Delete it instead.",
+      };
+    }
     if (target.role === "admin" && (await countAdmins(tx, projectId)) <= 1) {
       return { error: "A project needs at least one admin" };
     }
