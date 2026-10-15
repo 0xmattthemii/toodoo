@@ -53,7 +53,8 @@ export type PendingInvitation = {
 
 // ---- Board configuration (used by the toolbar, board content, and saved views) ----
 
-export type BoardMode = "list" | "kanban";
+export type BoardMode = "list" | "kanban" | "calendar";
+export const BOARD_MODES: BoardMode[] = ["list", "kanban", "calendar"];
 export type GroupBy = "project" | "assignee" | "deadline" | "none";
 /** "manual" is the order tasks were dragged into; the rest are fields. */
 export type SortBy = "manual" | "title" | "deadline" | "created";
@@ -104,7 +105,7 @@ const MAX_FILTERS = 20;
  */
 export function normalizeBoardConfig(config: BoardConfig): BoardConfig {
   return {
-    mode: config.mode === "kanban" ? "kanban" : "list",
+    mode: BOARD_MODES.includes(config.mode) ? config.mode : "list",
     groupBy: GROUP_BY_VALUES.includes(config.groupBy) ? config.groupBy : "none",
     // Views saved before sorting existed carry no sortBy.
     sortBy: SORT_BY_VALUES.includes(config.sortBy) ? config.sortBy : "manual",

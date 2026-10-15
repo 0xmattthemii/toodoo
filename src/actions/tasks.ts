@@ -148,6 +148,23 @@ export async function setTaskDone(taskId: string, done: boolean) {
   return { error: undefined };
 }
 
+/** Moves a task to another day, or clears its deadline with null. */
+export async function setTaskDeadline(taskId: string, deadline: string | null) {
+  const session = await requireSession();
+  const task = await canAccessTask(taskId, session.user.id);
+  if (!task) return { error: "Task not found" };
+
+  const day = deadline === null ? null : parseDeadline(deadline);
+  if (day === undefined) return { error: "Invalid deadline" };
+
+  await db
+    .update(tasks)
+    .set({ deadline: day, updatedAt: new Date() })
+    .where(eq(tasks.id, taskId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
 export async function moveTaskToProject(
   taskId: string,
   projectId: string | null,

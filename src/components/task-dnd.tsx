@@ -27,6 +27,9 @@ import type { TaskWithMeta } from "@/lib/types";
 const SIDEBAR_PROJECT_PREFIX = "sidebar-project:";
 const TASK_PREFIX = "task:";
 const TAIL_PREFIX = "task-tail:";
+const DAY_PREFIX = "calendar-day:";
+/** Droppable id for the calendar's list of tasks without a deadline. */
+export const UNSCHEDULED_DROP_ID = "calendar-unscheduled";
 
 /** Droppable id for a project row in the sidebar. */
 export function sidebarProjectDropId(projectId: string) {
@@ -79,6 +82,16 @@ export function taskGroupFromTailDropId(dropId: string) {
   return dropId.startsWith(TAIL_PREFIX)
     ? dropId.slice(TAIL_PREFIX.length)
     : null;
+}
+
+/** Droppable id for a day on the calendar, `YYYY-MM-DD`. */
+export function calendarDayDropId(day: string) {
+  return `${DAY_PREFIX}${day}`;
+}
+
+/** The day a drop id refers to, or null if it isn't a calendar day. */
+export function calendarDayFromDropId(dropId: string) {
+  return dropId.startsWith(DAY_PREFIX) ? dropId.slice(DAY_PREFIX.length) : null;
 }
 
 /** Called on every task drop, with a null id when it landed nowhere. */

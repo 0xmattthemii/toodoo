@@ -135,31 +135,36 @@ export function BoardToolbar() {
           value={config.mode}
           onValueChange={(value) => board.setMode(value as BoardMode)}
         >
-          <TabsList>
+          {/* Equal columns: every option as wide as the widest. */}
+          <TabsList className="grid grid-cols-3">
             <TabsTrigger value="list">List</TabsTrigger>
             <TabsTrigger value="kanban">Kanban</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
           </TabsList>
         </Tabs>
 
-        <Select
-          value={config.groupBy}
-          onValueChange={(value) => board.setGroupBy(value as GroupBy)}
-          items={GROUP_ITEMS}
-        >
-          <SelectTrigger aria-label="Group by">
-            <span className="text-muted-foreground">Group by</span>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {GROUP_ITEMS.filter(
-              (item) => !(scopedProjectId && item.value === "project"),
-            ).map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* The calendar is laid out by day; grouping has nothing to add. */}
+        {config.mode !== "calendar" ? (
+          <Select
+            value={config.groupBy}
+            onValueChange={(value) => board.setGroupBy(value as GroupBy)}
+            items={GROUP_ITEMS}
+          >
+            <SelectTrigger aria-label="Group by">
+              <span className="text-muted-foreground">Group by</span>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GROUP_ITEMS.filter(
+                (item) => !(scopedProjectId && item.value === "project"),
+              ).map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
 
         <Select
           value={config.sortBy}
@@ -252,7 +257,7 @@ export function BoardToolbar() {
             </Button>
           ) : null}
           {!viewId && !scopedProjectId ? <ViewDialog /> : null}
-          <Button onClick={board.openCreate}>
+          <Button onClick={() => board.openCreate()}>
             <Plus />
             New task
           </Button>
@@ -261,6 +266,12 @@ export function BoardToolbar() {
 
       {/* Active filters row — always rendered so the layout doesn't shift. */}
       <div className="flex min-h-7 flex-wrap items-center gap-2">
+        {/* Kanban columns and the calendar count their own tasks. */}
+        {config.mode === "list" ? (
+          <span className="mr-1 text-sm text-muted-foreground tabular-nums">
+            {board.visibleCount} {board.visibleCount === 1 ? "task" : "tasks"}
+          </span>
+        ) : null}
         {config.filters.map((filter) => (
           <Badge
             key={`${filter.field}:${filter.value}`}
@@ -298,6 +309,7 @@ export function BoardToolbar() {
         task={board.dialogTask}
         projects={options.projects}
         defaultProjectId={scopedProjectId}
+        defaultDeadline={board.dialogDefaults.deadline}
       />
     </div>
   );
