@@ -1,17 +1,20 @@
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProjects } from "@/components/sidebar-projects";
 import { SidebarViews } from "@/components/sidebar-views";
 import { TaskDndProvider } from "@/components/task-dnd";
+import { NoWorkspaceAccess } from "@/components/workspace/no-access";
 import { Workspace } from "@/components/workspace/workspace";
 import { WorkspaceErrorBoundary } from "@/components/workspace/workspace-error-boundary";
 import { WorkspaceProvider } from "@/components/workspace/workspace-provider";
 import { WorkspaceSkeleton } from "@/components/workspace/workspace-skeleton";
 import { googleAuthEnabled } from "@/lib/auth-flags";
 import { acceptPendingInvitations, getWorkspaceSnapshot } from "@/lib/data";
-import { requireSession } from "@/lib/session";
-import type { Person } from "@/lib/types";
+import { getSession } from "@/lib/session";
+import { managesWorkspace, type Person } from "@/lib/types";
+import { getWorkspaceMember } from "@/lib/workspace-access";
 
 /**
  * The app shell loads the whole workspace once and keeps it on the client
@@ -24,7 +27,10 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await requireSession();
+  // Not requireSession: an account outside the workspace is shown why, below,
+  // rather than redirected (requireSession sends it here).
+  const session = await getSession();
+  if (!session) redirect("/login");
   const me: Person = {
     id: session.user.id,
     name: session.user.name,
@@ -42,7 +48,11 @@ export default async function AppLayout({
       <Suspense
         fallback={<WorkspaceSkeleton user={me} googleEnabled={googleEnabled} />}
       >
-        <WorkspaceShell me={me} googleEnabled={googleEnabled}>
+        <WorkspaceShell
+          me={me}
+          emailVerified={session.user.emailVerified}
+          googleEnabled={googleEnabled}
+        >
           {children}
         </WorkspaceShell>
       </Suspense>
@@ -52,10 +62,12 @@ export default async function AppLayout({
 
 async function WorkspaceShell({
   me,
+  emailVerified,
   googleEnabled,
   children,
 }: {
   me: Person;
+  emailVerified: boolean;
   googleEnabled: boolean;
   children: React.ReactNode;
 }) {
@@ -66,7 +78,22 @@ async function WorkspaceShell({
     // retried on the next load.
     console.error("[invitations] could not check pending invitations", error);
   }
-  const snapshot = await getWorkspaceSnapshot(me);
+  const membership = await getWorkspaceMember(me.id);
+  if (!membership || membership.deactivatedAt) {
+    return (
+      <NoWorkspaceAccess
+        email={me.email}
+        reason={
+          membership?.deactivatedAt
+            ? "removed"
+            : emailVerified
+              ? "not-invited"
+              : "unverified"
+        }
+      />
+    );
+  }
+  const snapshot = await getWorkspaceSnapshot(me, membership.role);
 
   return (
     <WorkspaceProvider snapshot={snapshot}>
@@ -76,6 +103,8 @@ async function WorkspaceShell({
           googleEnabled={googleEnabled}
           projects={<SidebarProjects />}
           views={<SidebarViews />}
+          newProject={membership.role === "guest" ? null : undefined}
+          canManageWorkspace={managesWorkspace(membership.role)}
         />
         <main className="min-w-0 flex-1 overflow-y-auto">
           <WorkspaceErrorBoundary>

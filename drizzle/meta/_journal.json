@@ -71,6 +71,13 @@
       "when": 1790518989939,
       "tag": "0009_unassign_non_members",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792067152517,
+      "tag": "0010_workspace_roles",
+      "breakpoints": true
     }
   ]
 }

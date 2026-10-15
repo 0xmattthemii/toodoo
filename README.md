@@ -61,13 +61,28 @@ Everything is set through environment variables. No code changes or rebuilds are
 | `RESEND_API_KEY` | no | [Resend](https://resend.com) key for reset, verification and invitation emails. Without it, emails are only logged, and invitations can only be accepted through Google sign-in (see below) |
 | `EMAIL_FROM` | no | Sender address for outgoing email |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | Turns on [Google sign-in](#google-sign-in) |
-| `AUTH_ALLOWED_EMAIL_DOMAINS` | no | Comma-separated domains allowed to sign up, for example `acme.com,acme.dev` |
+| `AUTH_ALLOWED_EMAIL_DOMAINS` | no | Comma-separated domains allowed to sign up, for example `acme.com,acme.dev`. Applies on top of the in-app [sign-up setting](#workspace-roles-and-sign-ups) |
 | `GOOGLE_HOSTED_DOMAIN` | no | Only accept Google sign-ins from this Workspace domain (`*` means any Workspace, but no personal Gmail) |
 | `DESKTOP_RELEASES_REPO` | no | GitHub `owner/repo` the desktop download dialog points to. Only forks that ship their own build need it |
 
 The domain lock is enforced on the server for every sign-in method, and invitations to other domains are rejected. Password accounts created before you add the lock keep working.
 
 An invitation only turns into a membership once the invitee has proven they own the address: by clicking the verification email, or by signing in with Google. A domain lock doesn't replace that, since anyone can type a colleague's address into the sign-up form. Without `RESEND_API_KEY` no verification email goes out, so password-only invitees stay pending until they sign in with Google.
+
+## Workspace, roles and sign-ups
+
+A deployment is one workspace. The first account created becomes its **owner**; on an existing deployment, the oldest account does when you migrate.
+
+| Role | Can |
+| --- | --- |
+| Owner | Everything an admin can. There is exactly one, and nobody can change or remove them |
+| Admin | Invite people to the workspace, change roles, remove and restore people, and turn sign-ups on or off (**Workspace** in the account menu) |
+| Member | Create projects and be invited to any of them |
+| Guest | See only the projects they are invited to. Can't create projects or administer one |
+
+- **Sign-ups** are open by default: anyone can create an account and joins as a member. An admin can turn them off; then only someone with an invitation — to the workspace, or to a project — can create an account, by password or Google.
+- **Inviting someone from outside to a project** (from that project's **Manage Access**) makes them a guest once they sign up and confirm their address. An admin can promote them later.
+- **Removing someone** ends their sessions, takes them out of every project and assignment, and hands projects that only they administered to the admin who removed them. Their tasks stay, and an admin can restore them.
 
 ## Google sign-in
 

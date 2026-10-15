@@ -13,7 +13,7 @@ export function WorkspaceSkeleton({
   user,
   googleEnabled,
 }: {
-  user: { name: string; email: string; image: string | null };
+  user: { id: string; name: string; email: string; image: string | null };
   googleEnabled: boolean;
 }) {
   return (

@@ -39,6 +39,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Google sign-in was rejected. If this instance is limited to a Google Workspace domain, pick your work account.",
   signup_domain_restricted:
     "That Google account isn't allowed to sign in to this toodoo.",
+  signup_closed:
+    "Sign-ups are closed on this toodoo. Ask an admin to invite you, then sign in with the invited address.",
 };
 
 function Panel({

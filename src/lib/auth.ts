@@ -14,6 +14,10 @@ import {
 } from "@/lib/auth-flags";
 import { sendEmail } from "@/lib/email";
 import { formatEmailDomains } from "@/lib/utils";
+import {
+  canCreateAccount,
+  joinWorkspaceOnSignUp,
+} from "@/lib/workspace-access";
 
 export const appBaseURL =
   process.env.BETTER_AUTH_URL ??
@@ -124,6 +128,22 @@ export const auth = betterAuth({
     },
   },
   databaseHooks: {
+    user: {
+      create: {
+        // The first account becomes the workspace's owner; later ones join
+        // as members while sign-ups are open, or through their invitation.
+        // Runs once the user row is committed. A failure leaves an account
+        // without a workspace place, which the app shell reports rather than
+        // hiding, so it is logged and not retried here.
+        after: async (created) => {
+          try {
+            await joinWorkspaceOnSignUp(created.id);
+          } catch (error) {
+            console.error("[auth] could not add the new account to the workspace", error);
+          }
+        },
+      },
+    },
     account: {
       create: {
         after: async (account) => {
@@ -159,7 +179,20 @@ export const auth = betterAuth({
     // pre-existing password accounts keep working if the lock is added later.
     // Must RETURN the error (a throw is flattened to a generic
     // "validation_failed" and the message is lost).
-    validateUserInfo: async ({ user }) => {
+    validateUserInfo: async ({ user, source }) => {
+      // Closed sign-ups: only someone an invitation awaits may create an
+      // account, by password or Google alike. Existing accounts are never
+      // affected — this runs for creation only.
+      if (
+        source.action === "create-user" &&
+        (!user.email || !(await canCreateAccount(user.email)))
+      ) {
+        return {
+          error: "signup_closed",
+          errorDescription:
+            "Sign-ups are closed on this toodoo workspace. Ask an admin to invite you, then sign up with the address the invitation was sent to.",
+        };
+      }
       if (allowedEmailDomains().length === 0) return;
       // Some linking paths can omit the email; fail closed — without an
       // address we cannot prove the identity is in-domain.

@@ -169,7 +169,7 @@ export function MembersDialog({
           <DialogTitle>Project members</DialogTitle>
           <DialogDescription>
             {isAdmin
-              ? "Invite people by email and manage their roles."
+              ? "Invite people by email and manage their roles. Someone from outside the workspace joins as a guest and sees only this project."
               : "People with access to this project."}
           </DialogDescription>
         </DialogHeader>
@@ -218,6 +218,11 @@ export function MembersDialog({
                   {member.id === currentUserId ? (
                     <span className="text-muted-foreground"> (you)</span>
                   ) : null}
+                  {member.guest ? (
+                    <Badge variant="outline" className="ml-1.5 align-middle">
+                      Guest
+                    </Badge>
+                  ) : null}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {member.email}
@@ -236,7 +241,12 @@ export function MembersDialog({
                   </SelectTrigger>
                   <SelectContent>
                     {ROLE_ITEMS.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
+                      <SelectItem
+                        key={item.value}
+                        value={item.value}
+                        // Guests never administer a project.
+                        disabled={member.guest && item.value === "admin"}
+                      >
                         {item.label}
                       </SelectItem>
                     ))}

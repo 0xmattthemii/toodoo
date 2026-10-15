@@ -10,9 +10,16 @@ import { db } from "@/db";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/session", async () => {
   const { currentSession } = await import("./harness");
+  const { requireWorkspaceRole } = await import("@/lib/workspace-access");
   return {
     getSession: vi.fn(currentSession),
-    requireSession: vi.fn(currentSession),
+    // Like the real one, refuses anyone outside the workspace — it throws
+    // where the real one redirects.
+    requireSession: vi.fn(async () => {
+      const session = await currentSession();
+      await requireWorkspaceRole(session.user.id);
+      return session;
+    }),
   };
 });
 vi.mock("@/lib/auth", () => ({

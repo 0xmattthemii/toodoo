@@ -10,6 +10,7 @@ import {
   taskAssignees,
   tasks,
   user,
+  workspaceMembers,
 } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { allowedEmailDomains, isEmailDomainAllowed } from "@/lib/auth-flags";
@@ -25,6 +26,7 @@ import { appUrl, sendEmail } from "@/lib/email";
 import { requireSession } from "@/lib/session";
 import { isRole, type Role } from "@/lib/types";
 import { formatEmailDomains } from "@/lib/utils";
+import { getWorkspaceMember, getWorkspaceRole } from "@/lib/workspace-access";
 
 export async function inviteToProject(
   projectId: string,
@@ -59,6 +61,23 @@ export async function inviteToProject(
     .from(user)
     .where(eq(user.email, normalized));
 
+  const target = existing ? await getWorkspaceMember(existing.id) : null;
+  if (target?.deactivatedAt) {
+    return {
+      error:
+        "That person was removed from the workspace. A workspace admin can restore them.",
+    };
+  }
+  // Someone outside the workspace joins it as a guest, and guests never
+  // administer a project: they could otherwise invite more outsiders.
+  const guest = !target || target.role === "guest";
+  if (guest && role === "admin") {
+    return {
+      error:
+        "People outside the workspace join as guests, and guests can't be project admins. Invite them as a member.",
+    };
+  }
+
   const project = await getProject(projectId);
   const inviter = session.user.name;
 
@@ -66,16 +85,22 @@ export async function inviteToProject(
   // Anyone else — no account yet, or one whose address isn't verified — gets
   // an invitation that waits for the verification (acceptPendingInvitations).
   if (existing?.emailVerified) {
-    const inserted = await db
-      .insert(projectMembers)
-      .values({
-        projectId,
-        userId: existing.id,
-        role,
-        position: nextProjectMemberPosition(existing.id),
-      })
-      .onConflictDoNothing()
-      .returning();
+    const inserted = await db.transaction(async (tx) => {
+      await tx
+        .insert(workspaceMembers)
+        .values({ userId: existing.id, role: "guest" })
+        .onConflictDoNothing();
+      return tx
+        .insert(projectMembers)
+        .values({
+          projectId,
+          userId: existing.id,
+          role,
+          position: nextProjectMemberPosition(existing.id),
+        })
+        .onConflictDoNothing()
+        .returning();
+    });
     if (inserted.length === 0) {
       return { error: "That person is already a member" };
     }
@@ -93,7 +118,7 @@ export async function inviteToProject(
     const { id, name, image } = existing;
     return {
       added: true as const,
-      member: { id, name, email: existing.email, image, role },
+      member: { id, name, email: existing.email, image, role, guest },
       emailSent,
     };
   }
@@ -216,6 +241,12 @@ export async function updateMemberRole(
     await requireMembership(projectId, session.user.id, "admin", tx);
     const target = await getMembership(projectId, userId, tx);
     if (!target) return { error: "Not a member" };
+    if (
+      role === "admin" &&
+      (await getWorkspaceRole(userId, tx)) === "guest"
+    ) {
+      return { error: "Guests can't be project admins" };
+    }
     if (
       target.role === "admin" &&
       role !== "admin" &&

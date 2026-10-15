@@ -1,12 +1,19 @@
 "use client";
 
-import { ArrowLeftRight, LogOut, Monitor, UserRound } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Building2,
+  LogOut,
+  Monitor,
+  UserRound,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { DesktopDialog } from "@/components/desktop-dialog";
 import { ProfileDialog } from "@/components/profile-dialog";
 import { UserAvatar } from "@/components/user-avatar";
+import { WorkspaceDialog } from "@/components/workspace-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,12 +27,16 @@ import { DESKTOP_CONNECT_URL, useDesktopShell } from "@/lib/desktop-shell";
 export function NavUser({
   user,
   googleEnabled,
+  canManageWorkspace = false,
 }: {
-  user: { name: string; email: string; image: string | null };
+  user: { id: string; name: string; email: string; image: string | null };
   googleEnabled: boolean;
+  /** Owners and admins get the workspace's people and settings. */
+  canManageWorkspace?: boolean;
 }) {
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
   // Inside the desktop app the download link is pointless; offer its server
   // picker instead (the shell intercepts its own toodoo:// scheme).
@@ -56,6 +67,12 @@ export function NavUser({
             <UserRound />
             Profile
           </DropdownMenuItem>
+          {canManageWorkspace ? (
+            <DropdownMenuItem onClick={() => setWorkspaceOpen(true)}>
+              <Building2 />
+              Workspace
+            </DropdownMenuItem>
+          ) : null}
           {desktopShell ? (
             <DropdownMenuItem
               onClick={() => {
@@ -85,6 +102,13 @@ export function NavUser({
         onOpenChange={setProfileOpen}
       />
       <DesktopDialog open={desktopOpen} onOpenChange={setDesktopOpen} />
+      {canManageWorkspace ? (
+        <WorkspaceDialog
+          open={workspaceOpen}
+          onOpenChange={setWorkspaceOpen}
+          currentUserId={user.id}
+        />
+      ) : null}
     </>
   );
 }
