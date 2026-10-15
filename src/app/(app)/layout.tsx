@@ -14,7 +14,10 @@ import { googleAuthEnabled } from "@/lib/auth-flags";
 import { acceptPendingInvitations, getWorkspaceSnapshot } from "@/lib/data";
 import { getSession } from "@/lib/session";
 import { managesWorkspace, type Person } from "@/lib/types";
-import { getWorkspaceMember } from "@/lib/workspace-access";
+import {
+  getWorkspaceMember,
+  joinWorkspaceOnSignUp,
+} from "@/lib/workspace-access";
 
 /**
  * The app shell loads the whole workspace once and keeps it on the client
@@ -78,7 +81,19 @@ async function WorkspaceShell({
     // retried on the next load.
     console.error("[invitations] could not check pending invitations", error);
   }
-  const membership = await getWorkspaceMember(me.id);
+  let membership = await getWorkspaceMember(me.id);
+  if (!membership) {
+    // An account that never got its place — created by the version before
+    // workspaces while this one deployed, or a sign-up whose hook failed —
+    // gets it now, by the rule a sign-up follows today. One that is only
+    // waiting for an invitation (or for sign-ups to reopen) still gets none.
+    try {
+      await joinWorkspaceOnSignUp(me.id, me.email);
+      membership = await getWorkspaceMember(me.id);
+    } catch (error) {
+      console.error("[workspace] could not add the account to the workspace", error);
+    }
+  }
   if (!membership || membership.deactivatedAt) {
     return (
       <NoWorkspaceAccess

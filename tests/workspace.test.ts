@@ -88,15 +88,15 @@ describe("joining the workspace", () => {
 });
 
 describe("workspace invitations", () => {
-  it("are accepted in their role once the address is verified", async () => {
+  it("are accepted once the address is verified", async () => {
     const owner = await createUser("Owner", { workspaceRole: "owner" });
     expect(
-      await as(owner, () => inviteToWorkspace("new-admin@test.dev", "admin")),
+      await as(owner, () => inviteToWorkspace("newcomer@test.dev", "member")),
     ).toMatchObject({ invited: true });
 
     const invitee = await giveAddress(
       await createUser("Invitee", { verified: false, workspaceRole: null }),
-      "new-admin@test.dev",
+      "newcomer@test.dev",
     );
     await acceptPendingInvitations(invitee.id);
     expect(await workspaceRoleOf(invitee)).toBeNull();
@@ -106,7 +106,55 @@ describe("workspace invitations", () => {
       .set({ emailVerified: true })
       .where(eq(user.id, invitee.id));
     await acceptPendingInvitations(invitee.id);
-    expect(await workspaceRoleOf(invitee)).toBe("admin");
+    expect(await workspaceRoleOf(invitee)).toBe("member");
+  });
+
+  it("make an admin only of an account that has confirmed its address", async () => {
+    const owner = await createUser("Owner", { workspaceRole: "owner" });
+    // Whoever registers an address first and gets its owner to click the
+    // link would hold the account; that must never be an admin's.
+    const memberOnly = {
+      error: expect.stringContaining("only be invited as a member"),
+    };
+    expect(
+      await as(owner, () => inviteToWorkspace("stranger@test.dev", "admin")),
+    ).toMatchObject(memberOnly);
+    const unconfirmed = await createUser("Unconfirmed", {
+      verified: false,
+      workspaceRole: "guest",
+    });
+    expect(
+      await as(owner, () => inviteToWorkspace(unconfirmed.email, "admin")),
+    ).toMatchObject(memberOnly);
+
+    const guest = await createUser("Guest", { workspaceRole: "guest" });
+    expect(
+      await as(owner, () => inviteToWorkspace(guest.email, "admin")),
+    ).toMatchObject({ added: true });
+    expect(await workspaceRoleOf(guest)).toBe("admin");
+  });
+
+  it("go with their sender's authority", async () => {
+    const owner = await createUser("Owner", { workspaceRole: "owner" });
+    const admin = await createUser("Admin", { workspaceRole: "admin" });
+    const projectId = await createProject([
+      [admin, "admin"],
+      [owner, "admin"],
+    ]);
+    await as(admin, () => inviteToWorkspace("first@test.dev", "member"));
+    await as(admin, () =>
+      inviteToProject(projectId, "second@test.dev", "member"),
+    );
+    await setSignupsEnabled(false);
+
+    // No longer an admin: their workspace invitation goes.
+    await as(owner, () => updateWorkspaceRole(admin.id, "member"));
+    expect(await canCreateAccount("first@test.dev")).toBe(false);
+    expect(await canCreateAccount("second@test.dev")).toBe(true);
+
+    // Removed: their project invitations go as well.
+    await as(owner, () => deactivateWorkspaceMember(admin.id));
+    expect(await canCreateAccount("second@test.dev")).toBe(false);
   });
 
   it("promote a verified guest straight away", async () => {

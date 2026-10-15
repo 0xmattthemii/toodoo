@@ -5,6 +5,7 @@ import { and, asc, eq, inArray, ne } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
+  projectInvitations,
   projectMembers,
   projects,
   session as sessions,
@@ -161,6 +162,16 @@ export async function inviteToWorkspace(
   if (membership && membership.role !== "guest") {
     return { error: "That person is already in the workspace" };
   }
+  // An invitation is redeemed by whoever holds a verified account at the
+  // address, and verifying only proves someone clicked the link: an account
+  // pre-registered by someone else would be verified by the real owner on
+  // their behalf. That risk is kept to a member's access, never an admin's.
+  if (role === "admin" && !existing?.emailVerified) {
+    return {
+      error:
+        "Someone without a confirmed account here can only be invited as a member. Make them an admin once they've joined.",
+    };
+  }
 
   if (existing?.emailVerified) {
     // A guest is promoted; an account with no place at all joins.
@@ -292,6 +303,35 @@ async function handOverProjects(
   return handed;
 }
 
+/**
+ * Withdraws the invitations `userId` sent that nobody has accepted yet:
+ * those to the workspace, and with `projects` those to projects too. An
+ * invitation carries its sender's authority, so it goes when they lose it.
+ */
+async function revokeInvitationsBy(
+  tx: Executor,
+  userId: string,
+  { projects }: { projects: boolean },
+) {
+  await tx
+    .delete(workspaceInvitations)
+    .where(
+      and(
+        eq(workspaceInvitations.invitedBy, userId),
+        eq(workspaceInvitations.status, "pending"),
+      ),
+    );
+  if (!projects) return;
+  await tx
+    .delete(projectInvitations)
+    .where(
+      and(
+        eq(projectInvitations.invitedBy, userId),
+        eq(projectInvitations.status, "pending"),
+      ),
+    );
+}
+
 /** The person an admin may manage: anyone but the owner and themselves. */
 async function manageable(tx: Executor, meId: string, userId: string) {
   if (userId === meId) {
@@ -330,6 +370,11 @@ export async function updateWorkspaceRole(
       .update(workspaceMembers)
       .set({ role })
       .where(eq(workspaceMembers.userId, userId));
+    // No longer an admin: their workspace invitations go. A guest also no
+    // longer administers projects, so their project invitations go too.
+    if (role !== "admin") {
+      await revokeInvitationsBy(tx, userId, { projects: role === "guest" });
+    }
     return { error: undefined, handedOver };
   });
   revalidatePath("/", "layout");
@@ -354,6 +399,7 @@ export async function deactivateWorkspaceMember(userId: string) {
     const handedOver = await handOverProjects(tx, userId, me.id);
     await tx.delete(projectMembers).where(eq(projectMembers.userId, userId));
     await tx.delete(taskAssignees).where(eq(taskAssignees.userId, userId));
+    await revokeInvitationsBy(tx, userId, { projects: true });
     await tx.delete(sessions).where(eq(sessions.userId, userId));
     await tx
       .update(workspaceMembers)
