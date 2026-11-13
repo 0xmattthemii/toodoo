@@ -12,6 +12,7 @@ A simple, minimalist todo app for teams. Self-host it or [deploy it to Vercel](#
 - **Invitations** by email. Accounts with a verified address are added right away, everyone else once they confirm their address
 - **Boards** as a list or kanban, with group by, sort and stackable filters. Drag to reorder tasks, move them between columns or projects, and rearrange the sidebar
 - **Saved views** that keep any board setup in the sidebar
+- **Tasks widget**, a small window with a simplified list that stays on screen while you work in other apps
 
 Built with [Next.js](https://nextjs.org), [Better Auth](https://better-auth.com), [Drizzle](https://orm.drizzle.team) on plain Postgres (Supabase, Neon or your own) and [shadcn/ui](https://ui.shadcn.com).
 
@@ -103,6 +104,10 @@ A [Tauri 2](https://tauri.app) app for macOS and Windows (see [`desktop/`](deskt
    - **macOS:** after moving it to Applications, run `xattr -d com.apple.quarantine /Applications/Toodoo.app` once, or macOS will say the app is "damaged".
    - **Windows:** on the SmartScreen prompt, choose **More info → Run anyway**.
 3. Open Toodoo and enter your server address, or click **Open in Toodoo desktop** from the download dialog.
+
+### Tasks widget
+
+**Tasks widget** in the sidebar opens a small window with a simplified list: tick tasks off, add one, and switch between your tasks, all tasks, a project or a saved view. In the desktop app it floats above other windows and follows you across desktops. The pin lets it sink behind other windows, the arrows roll it up to its title bar, and it comes back where you left it the next time you open Toodoo. Closing the main window leaves the widget up. In a browser it opens as a popup window, which can't stay on top.
 
 The app updates itself. To connect to another server, use **profile menu → Switch server…**. **Continue with Google** opens your usual browser, because Google blocks sign-in inside embedded windows. To publish your own build, see [desktop/README.md](desktop/README.md#shipping-your-own-build).
 

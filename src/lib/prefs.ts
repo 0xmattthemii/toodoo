@@ -10,7 +10,10 @@
  * server's render cannot know it.
  */
 
+import { useSyncExternalStore } from "react";
+
 const memory = new Map<string, string>();
+const listeners = new Set<() => void>();
 
 /** What this tab already chose; safe to read while rendering. */
 export function cachedPref(key: string) {
@@ -33,10 +36,31 @@ export function storedPref(key: string) {
 /** Remembers a choice; `persist: false` keeps it to this tab's session. */
 export function savePref(key: string, value: string, persist = true) {
   memory.set(key, value);
+  for (const listener of listeners) listener();
   if (!persist) return;
   try {
     window.localStorage.setItem(key, value);
   } catch {
     // Not remembered next time, which is fine.
   }
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * A preference that follows `savePref`. `null` on the server and during
+ * hydration — the server's render cannot know it — and when nothing was ever
+ * chosen; the stored choice shows up right after hydration.
+ */
+export function usePref(key: string) {
+  return useSyncExternalStore(
+    subscribe,
+    () => storedPref(key),
+    () => null,
+  );
 }

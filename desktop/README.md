@@ -38,12 +38,13 @@ main README).
   `src/lib/desktop-auth.ts`. Google's own sign-in origins are still allowed
   to render in the window, for deployments on a web app that predates this
   flow and for the account-linking path (below).
-- Injects `window.__TOODOO_DESKTOP__ = { version, platform, externalSignIn }`
-  into every page so the web app knows it's inside the shell (it then shows
-  **Switch server…** in the profile menu instead of **Download desktop app**,
-  and sends Google sign-in to the browser), and on which OS. Shells that
-  predate this flow have no `externalSignIn`, so the web app keeps signing
-  them in inside the window.
+- Injects `window.__TOODOO_DESKTOP__ = { version, platform, externalSignIn,
+  widget }` into every page so the web app knows it's inside the shell (it
+  then shows **Switch server…** in the profile menu instead of **Download
+  desktop app**, sends Google sign-in to the browser, and opens the tasks
+  widget through the shell), and on which OS. Shells that predate a flow lack
+  its flag: without `externalSignIn` the web app keeps signing them in inside
+  the window, and without `widget` it doesn't offer the widget there.
 - macOS: the title bar is a transparent overlay (`TitleBarStyle::Overlay`,
   title hidden). The page runs to the top of the window — the sidebar keeps
   its colour and border up to the edge — and the traffic lights are placed in
@@ -53,6 +54,19 @@ main README).
   `data-tauri-drag-region` to move the window; starting that drag and the
   double-click maximize are the only IPC the connected server's pages are
   granted (`capabilities/remote.json`). Windows keeps its normal title bar.
+- **Tasks widget.** A second, small window (label `widget`) that loads the
+  web app's simplified list at `<server>/widget` under the same navigation
+  policy as the main window. It opens above other windows and on every
+  desktop; its size and position persist like the main window's, and it comes
+  back on the next launch if it was up when the app quit (`widget.json` in
+  the config directory; closing it by hand clears that). Its page has no IPC
+  beyond dragging: the pin, roll-up and "open toodoo" buttons navigate to
+  `toodoo://widget/…` links, which the shell intercepts. Rolled up, the
+  window is as tall as the page's 40px header, and the page shows only that
+  header in a window that short, so the window's height is the only state.
+  The app keeps running on the widget alone: closing the main window no
+  longer quits while the widget is up, and the Dock icon, a second launch or
+  a deep link bring the main window back.
 - Registers the `toodoo://` deep-link scheme:
   - `toodoo://connect?server=https://todo.acme.com` opens the connect screen
     with that address filled in — this is what the web app's install dialog
@@ -62,13 +76,17 @@ main README).
     the app's own window: the scheme is OS-wide, and no web page should be
     able to pop a browser open.
   - `toodoo://sign-in/callback?id=…` delivers a finished browser sign-in.
+  - `toodoo://widget` opens the tasks widget, or brings it forward.
+    `toodoo://widget/pin`, `/unpin`, `/collapse`, `/expand` and `/app` are
+    the widget page's controls; like `toodoo://sign-in` they are only
+    honoured from a page in the app's own windows.
   - `toodoo://`, `toodoo://projects/<id>` and `toodoo://views/<id>` open that
     page of the connected server in the main window. Any other link only
     focuses the window: the scheme is OS-wide, and a link must never reach a
     server route such as the sign-in handoff.
 - macOS menu bar: **Toodoo → Switch Server…**.
-- Single-instance: relaunching focuses the existing window. Window
-  size/position persist across launches.
+- Single-instance: relaunching focuses the existing window (reopening it if
+  only the widget was left). Window size/position persist across launches.
 
 ## Develop
 
@@ -80,8 +98,8 @@ pnpm tauri dev
 
 The app starts on the connect screen; enter `http://localhost:3000` (with
 `pnpm dev` running at the repo root) or any deployment. `cargo test` in
-`src-tauri/` covers the address normalization, the deep-link mapping and the
-sign-in links.
+`src-tauri/` covers the address normalization, the deep-link mapping, and the
+sign-in and widget links.
 
 ## Build installers
 

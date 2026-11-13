@@ -22,7 +22,7 @@ import type { Person, TaskWithMeta } from "@/lib/types";
  * still handles its own click (and keyboard), so only clicks on the padding
  * are turned into toggles here.
  */
-function DoneCheckbox({
+export function DoneCheckbox({
   task,
   onToggleDone,
   overdue,
