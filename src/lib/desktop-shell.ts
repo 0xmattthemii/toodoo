@@ -26,6 +26,13 @@ export type DesktopShell = {
    * version number, this flag is what the web app can actually rely on.
    */
   externalSignIn?: boolean;
+  /**
+   * Whether this shell can float the tasks widget (`/widget`) in a small
+   * window of its own, and takes the `toodoo://widget` links that drive it.
+   * Absent in shells that predate it; the web app then doesn't offer the
+   * widget there, since a webview can't open a second window by itself.
+   */
+  widget?: boolean;
 };
 
 declare global {
@@ -71,4 +78,53 @@ export function desktopSignInCallbackUrl(handoff: string) {
 /** `toodoo://connect?server=<origin>` — prefills this deployment in the app. */
 export function desktopConnectUrl(origin: string) {
   return `${DESKTOP_CONNECT_URL}?server=${encodeURIComponent(origin)}`;
+}
+
+/** Opens the tasks widget in its own small window, or brings it forward. */
+export const DESKTOP_WIDGET_URL = "toodoo://widget";
+
+/**
+ * What the widget's page asks of the window it floats in: stay above other
+ * windows or not, roll up to its header or back down, bring the app's main
+ * window forward. Only honoured from inside the app's own windows.
+ */
+export type DesktopWidgetCommand =
+  | "pin"
+  | "unpin"
+  | "collapse"
+  | "expand"
+  | "app";
+
+export function desktopWidgetUrl(command: DesktopWidgetCommand) {
+  return `${DESKTOP_WIDGET_URL}/${command}`;
+}
+
+/**
+ * Hands the shell one of its `toodoo://` links. Navigating to it is how a
+ * page talks to the shell, which intercepts the navigation and leaves the
+ * page where it is. A beat later rather than right away: assigning
+ * `location.href` in the same frame as a render makes the webview drop the
+ * pending paint, and the click that got here usually changed something.
+ */
+export function sendToDesktop(url: string) {
+  window.setTimeout(() => {
+    window.location.href = url;
+  }, 50);
+}
+
+/** The widget's window in a browser: a popup, named so a second click reuses it. */
+const WIDGET_POPUP = "toodoo-widget";
+
+/**
+ * Opens the tasks widget: a floating window in the desktop app, a popup
+ * window in a browser.
+ */
+export function openTasksWidget(shell: DesktopShell | null) {
+  if (shell) {
+    sendToDesktop(DESKTOP_WIDGET_URL);
+    return;
+  }
+  window
+    .open("/widget", WIDGET_POPUP, "popup,width=340,height=520")
+    ?.focus();
 }

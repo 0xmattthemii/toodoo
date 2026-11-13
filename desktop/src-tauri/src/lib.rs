@@ -4,7 +4,10 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, LogicalSize, Manager, State, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
+};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_opener::OpenerExt;
@@ -51,6 +54,26 @@ const SIGN_IN_ERROR: &str = "desktop_handoff_failed";
 /// How long a started sign-in stays claimable: long enough to hunt for a
 /// password, short enough that an abandoned verifier doesn't sit there.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// The app's own window.
+const MAIN_WINDOW: &str = "main";
+/// The tasks widget: a small window that floats above other apps and shows
+/// the web app's simplified list, its `/widget` page (src/app/(widget)).
+const WIDGET_WINDOW: &str = "widget";
+const WIDGET_PATH: &str = "/widget";
+/// The `toodoo://widget` deep-link host is reserved for that window.
+const WIDGET_HOST: &str = "widget";
+/// Whether the widget was open when the app last quit, next to `server.json`.
+const WIDGET_FILE: &str = "widget.json";
+const WIDGET_WIDTH: f64 = 340.0;
+const WIDGET_HEIGHT: f64 = 520.0;
+const WIDGET_MIN_WIDTH: f64 = 240.0;
+/// The widget page's header row (h-10 in the web app). Rolled up, the window
+/// is exactly this tall; the page shows only its header in a window that is
+/// (see COLLAPSED_MAX_HEIGHT in src/components/widget/tasks-widget.tsx).
+const WIDGET_HEADER_HEIGHT: f64 = 40.0;
+/// Up to this height the page treats the window as rolled up, so only a
+/// taller one is worth remembering as the size to roll back down to.
+const WIDGET_COLLAPSED_MAX_HEIGHT: f64 = 56.0;
 /// Where the Safari that ships the system's WebKit — the engine this window
 /// runs — records its version.
 #[cfg(target_os = "macos")]
@@ -72,6 +95,11 @@ const SWITCH_SERVER_MENU_ID: &str = "switch-server";
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHT_POSITION: tauri::LogicalPosition<f64> =
     tauri::LogicalPosition { x: 16.0, y: 20.0 };
+/// The same for the widget, whose header row is 40px: y = 12 centres the
+/// lights in it, and the page keeps its left 72px free for them.
+#[cfg(target_os = "macos")]
+const WIDGET_TRAFFIC_LIGHT_POSITION: tauri::LogicalPosition<f64> =
+    tauri::LogicalPosition { x: 12.0, y: 12.0 };
 
 /// Which deployment the main window wraps.
 struct ServerState {
@@ -100,6 +128,19 @@ struct PendingSignIn {
 #[derive(Default)]
 struct SignInState {
     pending: RwLock<Option<PendingSignIn>>,
+}
+
+/// What the widget window needs remembered while the app runs.
+#[derive(Default)]
+struct WidgetState {
+    /// Its height before it was rolled up to its header, to roll back down to.
+    expanded_height: RwLock<Option<f64>>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct SavedWidget {
+    /// Open when the app last quit, so it comes back with the next launch.
+    open: bool,
 }
 
 /// Where a `toodoo://` link came from. Starting a browser sign-in is only
@@ -315,18 +356,276 @@ fn current_server(app: &AppHandle) -> Option<Url> {
     app.state::<ServerState>().current.read().unwrap().clone()
 }
 
+/// Lets the web app tell it runs inside the shell (it then offers "Switch
+/// server" instead of "Download desktop app", sends Google sign-in to the
+/// browser via `toodoo://sign-in` rather than rendering it in the window, and
+/// opens the tasks widget through `toodoo://widget`) and on which OS. The
+/// platform is also stamped on <html data-desktop> so the app's CSS can lay
+/// the header out around the traffic lights (macOS) before its own scripts
+/// run — no jump on load. This runs at document start; WKWebView already has
+/// the document element then, WebView2 may not (the attribute is only used on
+/// macOS).
+fn shell_marker(app: &AppHandle) -> String {
+    format!(
+        "window.__TOODOO_DESKTOP__ = Object.freeze({{ version: {version}, platform: {platform}, externalSignIn: true, widget: true }});\n\
+         if (document.documentElement) document.documentElement.dataset.desktop = {platform};",
+        version = serde_json::to_string(&app.package_info().version.to_string())
+            .expect("string serializes"),
+        platform = serde_json::to_string(std::env::consts::OS).expect("string serializes"),
+    )
+}
+
+/// Whether a navigation renders in the window it started in — the policy of
+/// both the main window and the widget.
+fn stays_in_window(app: &AppHandle, url: &Url) -> bool {
+    // The bundled connect page always renders in the window.
+    if is_local_ui(url) {
+        return true;
+    }
+    // Links to our own scheme from inside a window (the web app's "Switch
+    // server", the widget's controls) are handled directly instead of
+    // bouncing through the OS.
+    if url.scheme() == "toodoo" {
+        handle_deep_link(app, url, LinkSource::Window);
+        return false;
+    }
+    // Only the connected server's origin — and the sign-in providers it may
+    // bounce through — stay in the window (origin, not host: an http://
+    // downgrade must not render inside the trusted shell). Web links open in
+    // the system browser; anything else (file:, custom OS schemes, ...) is
+    // dropped — page content must not reach ShellExecute.
+    if current_server(app).is_some_and(|base| base.origin() == url.origin())
+        || is_sign_in_origin(url)
+    {
+        return true;
+    }
+    if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
+        let _ = app.opener().open_url(url.as_str(), None::<String>);
+    }
+    false
+}
+
+fn build_main_window(app: &AppHandle, start: WebviewUrl) -> tauri::Result<WebviewWindow> {
+    let handle = app.clone();
+    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW, start)
+        .title("Toodoo")
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(720.0, 480.0)
+        .initialization_script(shell_marker(app));
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .user_agent(&macos_user_agent())
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(TRAFFIC_LIGHT_POSITION);
+    builder
+        .on_navigation(move |url| stays_in_window(&handle, url))
+        .build()
+}
+
+/// What the main window opens on: `url` if given, else the connected server,
+/// else the connect page.
+fn main_window_start(app: &AppHandle, url: Option<Url>) -> WebviewUrl {
+    match url.or_else(|| current_server(app)) {
+        Some(url) if !is_local_ui(&url) => WebviewUrl::External(url),
+        _ => WebviewUrl::App(CONNECT_PAGE.into()),
+    }
+}
+
+/// Brings the main window back after it was closed while the widget kept the
+/// app running. On a thread of its own: the callers are webview and
+/// event-loop callbacks, and building a window from inside one deadlocks on
+/// Windows.
+fn reopen_main_window(app: &AppHandle, url: Option<Url>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let start = main_window_start(&app, url);
+        if let Err(error) = build_main_window(&app, start) {
+            eprintln!("[toodoo] could not reopen the main window: {error}");
+        }
+    });
+}
+
+fn bring_forward(window: &WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
 fn focus_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
+    match app.get_webview_window(MAIN_WINDOW) {
+        Some(window) => bring_forward(&window),
+        None => reopen_main_window(app, None),
     }
 }
 
 fn open_in_main_window(app: &AppHandle, url: Url) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.navigate(url);
+    match app.get_webview_window(MAIN_WINDOW) {
+        Some(window) => {
+            let _ = window.navigate(url);
+            bring_forward(&window);
+        }
+        None => reopen_main_window(app, Some(url)),
     }
-    focus_main_window(app);
+}
+
+fn widget_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(WIDGET_FILE))
+}
+
+fn widget_was_open(app: &AppHandle) -> bool {
+    widget_file(app)
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|raw| serde_json::from_str::<SavedWidget>(&raw).ok())
+        .is_some_and(|saved| saved.open)
+}
+
+/// Best effort: if it can't be written the widget just doesn't come back by
+/// itself on the next launch.
+fn remember_widget(app: &AppHandle, open: bool) {
+    let Some(path) = widget_file(app) else { return };
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let saved = serde_json::to_string_pretty(&SavedWidget { open }).expect("serializable");
+    if let Err(error) = fs::write(&path, saved) {
+        eprintln!("[toodoo] could not save {}: {error}", path.display());
+    }
+}
+
+fn widget_url(origin: &Url) -> Url {
+    origin.join(WIDGET_PATH).expect("origin joins a path")
+}
+
+/// The widget's window: small, above other windows and on every desktop
+/// until the user unpins it. It loads a page of the connected server like the
+/// main window does, under the same navigation policy. Its size and position
+/// are kept across launches by the window-state plugin, which goes by label.
+fn build_widget_window(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewWindow> {
+    let handle = app.clone();
+    let builder =
+        WebviewWindowBuilder::new(app, WIDGET_WINDOW, WebviewUrl::External(widget_url(origin)))
+            .title("Toodoo tasks")
+            .inner_size(WIDGET_WIDTH, WIDGET_HEIGHT)
+            .min_inner_size(WIDGET_MIN_WIDTH, WIDGET_HEADER_HEIGHT)
+            .maximizable(false)
+            .always_on_top(true)
+            .visible_on_all_workspaces(true)
+            .initialization_script(shell_marker(app));
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .user_agent(&macos_user_agent())
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(WIDGET_TRAFFIC_LIGHT_POSITION);
+    let window = builder
+        .on_navigation(move |url| stays_in_window(&handle, url))
+        .build()?;
+    // Closed by the user, as opposed to going down with the app: it stays
+    // closed on the next launch.
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { .. } = event {
+            remember_widget(&handle, false);
+        }
+    });
+    Ok(window)
+}
+
+/// Open the widget, or bring it forward if it is already up.
+fn open_widget(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(WIDGET_WINDOW) {
+        bring_forward(&window);
+        return;
+    }
+    let Some(origin) = current_server(app) else {
+        // No server yet — there are no tasks to show.
+        show_connect_page(app, None);
+        return;
+    };
+    let app = app.clone();
+    // Off the calling thread, for the reason given on `reopen_main_window`.
+    std::thread::spawn(move || match build_widget_window(&app, &origin) {
+        Ok(_) => remember_widget(&app, true),
+        Err(error) => eprintln!("[toodoo] could not open the widget: {error}"),
+    });
+}
+
+/// What a link on the reserved `toodoo://widget` host is asking for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum WidgetLink {
+    /// `toodoo://widget` — open the widget, or bring it forward.
+    Open,
+    /// `toodoo://widget/pin`, `/unpin` — float above other windows, or not.
+    Pin(bool),
+    /// `toodoo://widget/collapse` — roll the window up to its header.
+    Collapse,
+    /// `toodoo://widget/expand` — and back down.
+    Expand,
+    /// `toodoo://widget/app` — bring the main window forward.
+    App,
+}
+
+fn parse_widget_link(url: &Url) -> Option<WidgetLink> {
+    if url.host_str() != Some(WIDGET_HOST) {
+        return None;
+    }
+    match url.path().trim_end_matches('/') {
+        "" => Some(WidgetLink::Open),
+        "/pin" => Some(WidgetLink::Pin(true)),
+        "/unpin" => Some(WidgetLink::Pin(false)),
+        "/collapse" => Some(WidgetLink::Collapse),
+        "/expand" => Some(WidgetLink::Expand),
+        "/app" => Some(WidgetLink::App),
+        _ => None,
+    }
+}
+
+/// The height a rolled-up widget goes back to: the one it had, or the default
+/// when it was already rolled up at launch.
+fn expanded_widget_height(remembered: Option<f64>) -> f64 {
+    remembered
+        .filter(|height| *height > WIDGET_COLLAPSED_MAX_HEIGHT)
+        .unwrap_or(WIDGET_HEIGHT)
+}
+
+/// One of the widget page's controls. The page has no IPC for these; it
+/// navigates to a `toodoo://widget/…` link, which never leaves the window.
+fn control_widget(app: &AppHandle, link: WidgetLink) {
+    if link == WidgetLink::App {
+        focus_main_window(app);
+        return;
+    }
+    let Some(window) = app.get_webview_window(WIDGET_WINDOW) else {
+        return;
+    };
+    match link {
+        WidgetLink::Pin(pinned) => {
+            let _ = window.set_always_on_top(pinned);
+            let _ = window.set_visible_on_all_workspaces(pinned);
+        }
+        WidgetLink::Collapse | WidgetLink::Expand => {
+            let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) else {
+                return;
+            };
+            let size = size.to_logical::<f64>(scale);
+            let state = app.state::<WidgetState>();
+            let mut remembered = state.expanded_height.write().unwrap();
+            let height = if link == WidgetLink::Collapse {
+                if size.height > WIDGET_COLLAPSED_MAX_HEIGHT {
+                    *remembered = Some(size.height);
+                }
+                WIDGET_HEADER_HEIGHT
+            } else {
+                expanded_widget_height(remembered.take())
+            };
+            let _ = window.set_size(LogicalSize::new(size.width, height));
+        }
+        WidgetLink::Open | WidgetLink::App => {}
+    }
 }
 
 fn show_connect_page(app: &AppHandle, suggested: Option<String>) {
@@ -534,6 +833,18 @@ fn handle_deep_link(app: &AppHandle, url: &Url, source: LinkSource) {
         }
         return;
     }
+    if url.host_str() == Some(WIDGET_HOST) {
+        match parse_widget_link(url) {
+            // From anywhere, like the links to the app's pages: it only
+            // shows the user their own list.
+            Some(WidgetLink::Open) => open_widget(app),
+            // The rest rearrange windows the user has placed; only the
+            // app's own pages may.
+            Some(link) if source == LinkSource::Window => control_widget(app, link),
+            _ => {}
+        }
+        return;
+    }
     if url.host_str() == Some(CONNECT_HOST) {
         // `toodoo://connect?server=https://todo.acme.com`, from the web app's
         // install dialog or its "Switch server" entry. It only prefills the
@@ -596,6 +907,11 @@ async fn connect(app: AppHandle, url: String) -> Result<(), String> {
     verify_toodoo_server(&origin).await?;
     save_server(&app, &origin)?;
     *app.state::<ServerState>().current.write().unwrap() = Some(origin.clone());
+    // An open widget follows to the new server, or it would keep listing the
+    // old one's tasks.
+    if let Some(widget) = app.get_webview_window(WIDGET_WINDOW) {
+        let _ = widget.navigate(widget_url(&origin));
+    }
     open_in_main_window(&app, origin);
     Ok(())
 }
@@ -727,77 +1043,25 @@ pub fn run() {
                 ),
                 None => load_saved_server(app.handle()),
             };
-            let start_url = match &current {
-                Some(base) => WebviewUrl::External(base.clone()),
-                None => WebviewUrl::App(CONNECT_PAGE.into()),
-            };
+            let widget_origin = current.clone();
             app.manage(ServerState {
                 current: RwLock::new(current),
                 suggested: RwLock::new(None),
             });
             app.manage(SignInState::default());
+            app.manage(WidgetState::default());
 
             #[cfg(target_os = "macos")]
             install_menu(app)?;
 
-            // Lets the web app tell it runs inside the shell (it then offers
-            // "Switch server" instead of "Download desktop app", and sends
-            // Google sign-in to the browser via `toodoo://sign-in` rather
-            // than rendering it in the window) and on which OS. The platform is also stamped on <html data-desktop> so the
-            // app's CSS can lay the header out around the traffic lights
-            // (macOS) before its own scripts run — no jump on load. This runs
-            // at document start; WKWebView already has the document element
-            // then, WebView2 may not (the attribute is only used on macOS).
-            let shell_marker = format!(
-                "window.__TOODOO_DESKTOP__ = Object.freeze({{ version: {version}, platform: {platform}, externalSignIn: true }});\n\
-                 if (document.documentElement) document.documentElement.dataset.desktop = {platform};",
-                version = serde_json::to_string(&app.package_info().version.to_string())
-                    .expect("string serializes"),
-                platform = serde_json::to_string(std::env::consts::OS).expect("string serializes"),
-            );
+            build_main_window(app.handle(), main_window_start(app.handle(), None))?;
 
-            let handle = app.handle().clone();
-            let builder = WebviewWindowBuilder::new(app, "main", start_url)
-                .title("Toodoo")
-                .inner_size(1200.0, 800.0)
-                .min_inner_size(720.0, 480.0)
-                .initialization_script(shell_marker);
-            #[cfg(target_os = "macos")]
-            let builder = builder
-                .user_agent(&macos_user_agent())
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .traffic_light_position(TRAFFIC_LIGHT_POSITION);
-            builder
-                .on_navigation(move |url| {
-                    // The bundled connect page always renders in the window.
-                    if is_local_ui(url) {
-                        return true;
-                    }
-                    // Links to our own scheme from inside the window (the
-                    // web app's "Switch server") are handled directly
-                    // instead of bouncing through the OS.
-                    if url.scheme() == "toodoo" {
-                        handle_deep_link(&handle, url, LinkSource::Window);
-                        return false;
-                    }
-                    // Only the connected server's origin — and the sign-in
-                    // providers it may bounce through — stay in the window
-                    // (origin, not host: an http:// downgrade must not render
-                    // inside the trusted shell). Web links open in the system
-                    // browser; anything else (file:, custom OS schemes, ...)
-                    // is dropped — page content must not reach ShellExecute.
-                    if current_server(&handle).is_some_and(|base| base.origin() == url.origin())
-                        || is_sign_in_origin(url)
-                    {
-                        return true;
-                    }
-                    if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
-                        let _ = handle.opener().open_url(url.as_str(), None::<String>);
-                    }
-                    false
-                })
-                .build()?;
+            // The widget comes back if it was up when the app last quit.
+            if let Some(origin) = widget_origin.filter(|_| widget_was_open(app.handle())) {
+                if let Err(error) = build_widget_window(app.handle(), &origin) {
+                    eprintln!("[toodoo] could not reopen the widget: {error}");
+                }
+            }
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -818,8 +1082,16 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Toodoo");
+        .build(tauri::generate_context!())
+        .expect("error while running Toodoo")
+        .run(|_app, _event| {
+            // macOS: a click on the Dock icon. With the main window closed
+            // and only the widget left, this is how it comes back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                focus_main_window(_app);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -965,6 +1237,50 @@ mod tests {
         ] {
             assert!(parse(url).is_none(), "{url}");
         }
+    }
+
+    #[test]
+    fn reads_widget_links_and_rejects_unknown_ones() {
+        let parse = |url: &str| parse_widget_link(&Url::parse(url).unwrap());
+        assert_eq!(parse("toodoo://widget"), Some(WidgetLink::Open));
+        assert_eq!(parse("toodoo://widget/"), Some(WidgetLink::Open));
+        assert_eq!(parse("toodoo://widget/pin"), Some(WidgetLink::Pin(true)));
+        assert_eq!(parse("toodoo://widget/unpin"), Some(WidgetLink::Pin(false)));
+        assert_eq!(parse("toodoo://widget/collapse"), Some(WidgetLink::Collapse));
+        assert_eq!(parse("toodoo://widget/expand"), Some(WidgetLink::Expand));
+        assert_eq!(parse("toodoo://widget/app"), Some(WidgetLink::App));
+        for url in [
+            // Not the reserved host.
+            "toodoo://widgets",
+            "toodoo://projects/widget",
+            // Reserved host, nothing the shell does.
+            "toodoo://widget/close",
+            "toodoo://widget/pin/extra",
+            "toodoo://widget/PIN",
+        ] {
+            assert!(parse(url).is_none(), "{url}");
+        }
+    }
+
+    /// The reserved host must never fall through to the page mapping: the
+    /// main window has no business loading the widget's page.
+    #[test]
+    fn widget_links_are_not_app_pages() {
+        let base = Url::parse("https://todo.acme.com/").unwrap();
+        for link in ["toodoo://widget", "toodoo://widget/pin", "toodoo:///widget"] {
+            let url = Url::parse(link).unwrap();
+            assert!(deep_link_to_web_url(&base, &url).is_none(), "{link}");
+        }
+    }
+
+    #[test]
+    fn a_rolled_up_widget_expands_to_a_usable_height() {
+        assert_eq!(expanded_widget_height(Some(612.0)), 612.0);
+        // Nothing remembered — it was already rolled up at launch — or only
+        // a height the page would still show rolled up.
+        assert_eq!(expanded_widget_height(None), WIDGET_HEIGHT);
+        assert_eq!(expanded_widget_height(Some(WIDGET_HEADER_HEIGHT)), WIDGET_HEIGHT);
+        assert_eq!(expanded_widget_height(Some(WIDGET_COLLAPSED_MAX_HEIGHT)), WIDGET_HEIGHT);
     }
 
     #[test]

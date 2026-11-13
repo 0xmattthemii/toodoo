@@ -3,6 +3,7 @@ import { Inbox } from "lucide-react";
 import { NavUser } from "@/components/nav-user";
 import { ProjectDialog } from "@/components/project-dialog";
 import { SidebarLink } from "@/components/sidebar-link";
+import { SidebarWidgetButton } from "@/components/sidebar-widget-button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function SidebarListSkeleton() {
@@ -56,6 +57,7 @@ export function AppSidebar({
           <Inbox className="size-4 text-muted-foreground" />
           All tasks
         </SidebarLink>
+        <SidebarWidgetButton />
       </nav>
 
       {/* pt-2 rather than all of the offset as mt: overflow-y-auto makes

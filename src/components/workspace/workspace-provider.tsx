@@ -94,6 +94,13 @@ const POLL_EVERY_MS = 60_000;
  * re-applying one a snapshot already reflects changes nothing.
  */
 const COMMIT_GRACE_MS = 15_000;
+/**
+ * Where the app's windows on one device tell each other that something
+ * changed — the tasks widget floating beside the main window, a second tab.
+ * Each holds its own copy of the workspace, so without this a task ticked in
+ * one would stay unticked in the other until its next poll.
+ */
+const SYNC_CHANNEL = "toodoo.workspace";
 
 /**
  * Holds the workspace on the client.
@@ -155,6 +162,23 @@ export function WorkspaceProvider({
     };
   }, [router]);
 
+  // A change made in another window: fetch it now. Nothing is sent back, so
+  // two windows can't keep each other refreshing.
+  const channel = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const opened = new BroadcastChannel(SYNC_CHANNEL);
+    channel.current = opened;
+    opened.onmessage = () => {
+      lastSync.current = Date.now();
+      router.refresh();
+    };
+    return () => {
+      channel.current = null;
+      opened.close();
+    };
+  }, [router]);
+
   const mutate = useCallback(async function run<R extends ActionResult>(
     spec: MutationSpec<R>,
   ): Promise<R | null> {
@@ -190,6 +214,7 @@ export function WorkspaceProvider({
           ]);
         }
         setPending((current) => current.filter((e) => e !== entry));
+        channel.current?.postMessage("changed");
         resolve(result);
       });
     });
